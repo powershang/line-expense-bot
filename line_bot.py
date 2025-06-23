@@ -44,6 +44,12 @@ class ExpenseBot:
             '記帳': self.show_expense_help,
             '查詢': self.show_recent_expenses,
             '本月': self.show_monthly_summary,
+            '總金額': self.show_monthly_total,
+            '統計': self.show_all_time_stats,
+            '當前統計': self.show_current_stats,
+            '重新統計': self.confirm_reset_current_stats,
+            '確認重新統計': self.reset_current_stats,
+            '取消重新統計': self.cancel_reset_stats,
             '幫助': self.show_help,
             '說明': self.show_help
         }
@@ -68,9 +74,9 @@ class ExpenseBot:
             expense_id = db.add_expense(
                 user_id=user_id,
                 amount=parsed_data['amount'],
-                location=parsed_data['location'],
-                description=parsed_data['description'],
-                category=parsed_data['category']
+                description=parsed_data['reason'] or parsed_data['description'],
+                location=None,  # 不再使用地點
+                category=None   # 不再使用分類
             )
             
             summary = parser.format_expense_summary(parsed_data)
@@ -79,9 +85,9 @@ class ExpenseBot:
             
             # 添加快速回覆選項
             quick_reply = QuickReply(items=[
+                QuickReplyButton(action=MessageAction(label="當前統計", text="當前統計")),
                 QuickReplyButton(action=MessageAction(label="查詢記錄", text="查詢")),
-                QuickReplyButton(action=MessageAction(label="本月摘要", text="本月")),
-                QuickReplyButton(action=MessageAction(label="繼續記帳", text="記帳"))
+                QuickReplyButton(action=MessageAction(label="本月", text="本月"))
             ])
             
             return TextSendMessage(text=response, quick_reply=quick_reply)
@@ -110,16 +116,9 @@ class ExpenseBot:
                 time_str = dt.strftime('%m/%d %H:%M')
                 
                 response += f"#{expense_id} - {time_str}\n"
-                response += f"💰 {amount} 元"
-                
-                if location:
-                    response += f" | 📍 {location}"
-                if category:
-                    response += f" | 🏷️ {category}"
-                
-                response += "\n\n"
+                response += f"📝 {description} - 💰 {amount:.0f} 元\n\n"
             
-            response += f"總計: {total} 元"
+            response += f"總計: {total:.0f} 元"
             
             return TextSendMessage(text=response)
             
@@ -128,30 +127,21 @@ class ExpenseBot:
             return TextSendMessage(text="❌ 查詢失敗，請稍後再試。")
     
     def show_monthly_summary(self, user_id):
-        """顯示本月支出摘要"""
+        """顯示本月支出摘要（簡化版）"""
         try:
             now = datetime.now()
-            summary = db.get_monthly_summary(user_id, now.year, now.month)
+            total_amount, total_count = db.get_monthly_total(user_id, now.year, now.month)
             
-            if not summary:
+            if total_count == 0:
                 return TextSendMessage(text=f"📊 {now.year}年{now.month}月目前沒有支出記錄。")
             
             response = f"📊 {now.year}年{now.month}月支出摘要:\n\n"
-            total_amount = 0
-            total_count = 0
-            
-            for amount, count, category in summary:
-                if amount and count:
-                    total_amount += amount
-                    total_count += count
-                    response += f"🏷️ {category or '其他'}: {amount} 元 ({count} 筆)\n"
-            
-            response += f"\n💳 總支出: {total_amount} 元"
-            response += f"\n📝 總筆數: {total_count} 筆"
+            response += f"💳 總支出: {total_amount:.0f} 元\n"
+            response += f"📝 總筆數: {total_count} 筆\n"
             
             if total_count > 0:
                 avg = total_amount / total_count
-                response += f"\n📈 平均: {avg:.1f} 元/筆"
+                response += f"📈 平均: {avg:.1f} 元/筆"
             
             return TextSendMessage(text=response)
             
@@ -159,30 +149,143 @@ class ExpenseBot:
             logger.error(f"查詢月度摘要時發生錯誤: {e}")
             return TextSendMessage(text="❌ 查詢失敗，請稍後再試。")
     
+    def show_monthly_total(self, user_id):
+        """顯示每月總金額"""
+        try:
+            now = datetime.now()
+            
+            # 獲取最近12個月的資料
+            monthly_data = []
+            for i in range(12):
+                # 計算月份
+                month = now.month - i
+                year = now.year
+                if month <= 0:
+                    month += 12
+                    year -= 1
+                
+                total_amount, total_count = db.get_monthly_total(user_id, year, month)
+                if total_count > 0:
+                    monthly_data.append((year, month, total_amount, total_count))
+            
+            if not monthly_data:
+                return TextSendMessage(text="📊 目前沒有任何支出記錄。")
+            
+            response = "📊 每月總金額統計:\n\n"
+            
+            for year, month, amount, count in monthly_data[:6]:  # 顯示最近6個月
+                response += f"📅 {year}年{month}月: {amount:.0f} 元 ({count} 筆)\n"
+            
+            # 計算總計
+            total_all = sum(amount for _, _, amount, _ in monthly_data)
+            count_all = sum(count for _, _, _, count in monthly_data)
+            
+            response += f"\n💰 總計: {total_all:.0f} 元"
+            response += f"\n📊 總筆數: {count_all} 筆"
+            
+            return TextSendMessage(text=response)
+            
+        except Exception as e:
+            logger.error(f"查詢每月總金額時發生錯誤: {e}")
+            return TextSendMessage(text="❌ 查詢失敗，請稍後再試。")
+    
+    def show_current_stats(self, user_id):
+        """顯示當前統計金額（從重置日期開始計算）"""
+        try:
+            current_stats = db.get_current_stats(user_id)
+            
+            if current_stats['total_count'] == 0:
+                return TextSendMessage(text="📊 當前統計期間內沒有任何記錄。")
+            
+            response = "📊 當前統計金額:\n\n"
+            response += f"💰 當前總支出: {current_stats['total_amount']:.0f} 元\n"
+            response += f"📝 當前筆數: {current_stats['total_count']} 筆\n"
+            
+            if current_stats['total_count'] > 0:
+                avg = current_stats['total_amount'] / current_stats['total_count']
+                response += f"📈 平均: {avg:.1f} 元/筆\n"
+            
+            # 顯示統計期間
+            if current_stats['reset_date']:
+                reset_dt = datetime.fromisoformat(current_stats['reset_date'].replace('Z', '+00:00'))
+                response += f"\n📅 統計開始: {reset_dt.strftime('%Y/%m/%d %H:%M')}\n"
+            
+            if current_stats['last_record']:
+                last_dt = datetime.fromisoformat(current_stats['last_record'].replace('Z', '+00:00'))
+                response += f"📅 最近記錄: {last_dt.strftime('%Y/%m/%d %H:%M')}\n"
+            
+            response += f"\n💡 提示: 使用「重新統計」可重置當前統計金額"
+            
+            return TextSendMessage(text=response)
+            
+        except Exception as e:
+            logger.error(f"查詢當前統計時發生錯誤: {e}")
+            return TextSendMessage(text="❌ 查詢失敗，請稍後再試。")
+
+    def show_all_time_stats(self, user_id):
+        """顯示總統計資料（所有時間的記錄）"""
+        try:
+            stats = db.get_all_time_stats(user_id)
+            
+            if stats['total_count'] == 0:
+                return TextSendMessage(text="📊 目前沒有任何支出記錄。")
+            
+            response = "📊 歷史總統計報告:\n\n"
+            response += f"💰 歷史總支出: {stats['total_amount']:.0f} 元\n"
+            response += f"📝 歷史總筆數: {stats['total_count']} 筆\n"
+            
+            if stats['total_count'] > 0:
+                avg = stats['total_amount'] / stats['total_count']
+                response += f"📈 歷史平均: {avg:.1f} 元/筆\n"
+            
+            # 顯示記錄期間
+            if stats['first_record'] and stats['last_record']:
+                first_dt = datetime.fromisoformat(stats['first_record'].replace('Z', '+00:00'))
+                last_dt = datetime.fromisoformat(stats['last_record'].replace('Z', '+00:00'))
+                response += f"\n📅 記錄期間:\n"
+                response += f"   開始: {first_dt.strftime('%Y/%m/%d')}\n"
+                response += f"   最近: {last_dt.strftime('%Y/%m/%d')}\n"
+            
+            # 顯示最近幾個月的統計
+            if stats['monthly_stats']:
+                response += f"\n📊 最近月份統計:\n"
+                for month_str, amount, count in stats['monthly_stats'][:5]:
+                    year, month = month_str.split('-')
+                    response += f"   {year}年{int(month)}月: {amount:.0f} 元 ({count} 筆)\n"
+            
+            response += f"\n💡 「當前統計」顯示重置後的累積金額"
+            
+            return TextSendMessage(text=response)
+            
+        except Exception as e:
+            logger.error(f"查詢總統計時發生錯誤: {e}")
+            return TextSendMessage(text="❌ 查詢失敗，請稍後再試。")
+
     def show_expense_help(self, user_id):
         """顯示記帳格式說明"""
         help_text = """💡 記帳格式說明:
 
-你可以用自然語言記帳，我會自動識別金額和地點！
+簡單的格式：原因 + 價錢
 
 📝 範例:
-• "在7-11買飲料50元"
-• "午餐花了120塊"
-• "停車費30元"
-• "星巴克咖啡150"
-• "捷運車費26元"
+• "午餐 120"
+• "咖啡 50元"
+• "停車費 30塊"
+• "買飲料 45"
+• "電影票 280元"
 
-🏷️ 我會自動分類:
-• 餐飲: 餐廳、咖啡、飲料等
-• 購物: 超市、商店、衣服等  
-• 交通: 車費、油錢、停車等
-• 娛樂: 電影、遊戲、KTV等
-• 醫療: 看病、藥品等
+💡 支援的金額格式:
+• 120元、50塊、30錢
+• NT$100、$80
+• 花了60、60 (純數字)
 
-💡 指令:
-• "查詢" - 查看最近記錄
+🕐 系統會自動記錄時間
+📋 查詢時顯示：原因 + 價錢 + 日期時間
+
+📊 統計功能:
 • "本月" - 本月支出摘要
-• "幫助" - 顯示說明"""
+• "總金額" - 每月總金額統計
+• "統計" - 完整統計報告"""
 
         return TextSendMessage(text=help_text)
     
@@ -190,26 +293,31 @@ class ExpenseBot:
         """顯示主要幫助訊息"""
         help_text = """🤖 LINE 記帳機器人
 
-我可以幫你輕鬆記帳！
+簡單記帳，輕鬆管理！
 
 🚀 開始使用:
-直接傳送包含金額和地點的訊息，例如:
-"在麥當勞吃午餐89元"
+直接輸入「原因 + 價錢」，例如:
+"午餐 120元"
 
 📋 功能指令:
 • "記帳" - 記帳格式說明
 • "查詢" - 查看最近記錄  
 • "本月" - 本月支出摘要
+• "總金額" - 每月總金額統計
+• "當前統計" - 當前累積統計金額 ⭐
+• "統計" - 歷史總統計報告
+• "重新統計" - 🔄 重置當前統計金額
 • "幫助" - 顯示此說明
 
-💡 小提示:
-支援多種金額格式 (元、塊、$、NT$)
-自動識別地點和消費類別"""
+💡 統計說明:
+• 當前統計：從重置日期開始累積
+• 歷史統計：包含所有時間記錄
+• 重新統計：只重置當前金額，保留歷史"""
 
         quick_reply = QuickReply(items=[
-            QuickReplyButton(action=MessageAction(label="記帳說明", text="記帳")),
+            QuickReplyButton(action=MessageAction(label="當前統計", text="當前統計")),
             QuickReplyButton(action=MessageAction(label="查詢記錄", text="查詢")),
-            QuickReplyButton(action=MessageAction(label="本月摘要", text="本月"))
+            QuickReplyButton(action=MessageAction(label="總金額", text="總金額"))
         ])
 
         return TextSendMessage(text=help_text, quick_reply=quick_reply)
@@ -232,6 +340,79 @@ class ExpenseBot:
 或輸入 "記帳" 查看詳細說明。"""
 
         return TextSendMessage(text=suggestion)
+
+    def confirm_reset_current_stats(self, user_id):
+        """確認是否要重新統計當前金額"""
+        try:
+            # 取得當前統計資料
+            current_stats = db.get_current_stats(user_id)
+            
+            if current_stats['total_count'] == 0:
+                return TextSendMessage(text="📊 當前統計金額為 0，無需重新統計。")
+            
+            warning_text = f"""⚠️ 重新統計確認
+
+您即將重置「當前統計金額」！
+
+📊 當前統計:
+💰 當前總支出: {current_stats['total_amount']:.0f} 元
+📝 當前筆數: {current_stats['total_count']} 筆
+
+✅ 保留內容:
+• 所有記帳記錄不會被刪除
+• 每月總金額統計不受影響
+• 歷史資料完整保留
+
+🔄 重置內容:
+• 當前統計金額歸零
+• 重新開始累積計算
+
+確定要執行嗎？"""
+
+            quick_reply = QuickReply(items=[
+                QuickReplyButton(action=MessageAction(label="✅ 確認重新統計", text="確認重新統計")),
+                QuickReplyButton(action=MessageAction(label="❌ 取消", text="取消重新統計"))
+            ])
+
+            return TextSendMessage(text=warning_text, quick_reply=quick_reply)
+            
+        except Exception as e:
+            logger.error(f"確認重新統計時發生錯誤: {e}")
+            return TextSendMessage(text="❌ 操作失敗，請稍後再試。")
+    
+    def reset_current_stats(self, user_id):
+        """執行重新統計（重置當前統計金額）"""
+        try:
+            old_stats = db.reset_current_stats(user_id)
+            
+            success_text = f"""✅ 重新統計完成！
+
+📊 重置結果:
+🔄 重置前金額: {old_stats['total_amount']:.0f} 元
+🔄 重置前筆數: {old_stats['total_count']} 筆
+💰 當前統計金額: 0 元
+
+✅ 保留內容:
+• 所有記帳記錄完整保留
+• 每月總金額統計正常運作
+• 可隨時查看歷史統計
+
+🎉 現在開始重新累積當前統計金額！"""
+            
+            quick_reply = QuickReply(items=[
+                QuickReplyButton(action=MessageAction(label="查看當前統計", text="當前統計")),
+                QuickReplyButton(action=MessageAction(label="開始記帳", text="記帳"))
+            ])
+            
+            return TextSendMessage(text=success_text, quick_reply=quick_reply)
+                
+        except Exception as e:
+            logger.error(f"執行重新統計時發生錯誤: {e}")
+            return TextSendMessage(text="❌ 重新統計失敗，請稍後再試。")
+    
+    def cancel_reset_stats(self, user_id):
+        """取消重新統計"""
+        return TextSendMessage(text="✅ 已取消重新統計，您的記錄保持不變。")
 
 # 初始化機器人
 bot = ExpenseBot()
