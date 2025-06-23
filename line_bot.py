@@ -1,3 +1,7 @@
+import sys
+sys.stdout.write(f"🔍 FORCED DEBUG: Starting app\n")
+sys.stdout.flush()
+
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -15,6 +19,13 @@ from message_parser import MessageParser
 # 設定日誌
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# 🔍 除錯訊息 - 檢查 TOKEN
+print(f"🔍 DEBUG: TOKEN 長度: {len(LINE_CHANNEL_ACCESS_TOKEN)}")
+print(f"🔍 DEBUG: TOKEN 開頭: {LINE_CHANNEL_ACCESS_TOKEN[:30]}...")
+print(f"🔍 DEBUG: TOKEN 結尾: ...{LINE_CHANNEL_ACCESS_TOKEN[-10:]}")
+print(f"🔍 DEBUG: SECRET 長度: {len(LINE_CHANNEL_SECRET)}")
+print(f"🔍 DEBUG: SECRET: {LINE_CHANNEL_SECRET}")
 
 # 初始化 Flask 應用程式
 app = Flask(__name__)

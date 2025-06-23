@@ -59,6 +59,12 @@ def main():
     print("📡 Webhook URL: http://localhost:5000/callback")
     print("💡 提示: 使用 ngrok 建立公開 URL 用於測試")
     
+    # 測試 token 是否有效的代碼
+    try:
+        line_bot_api.get_profile('test')  # 這會觸發認證
+    except:
+        print("❌ Token 無效")
+    
     # 啟動應用程式
     from line_bot import app, PORT
     app.run(host='0.0.0.0', port=PORT, debug=True)
