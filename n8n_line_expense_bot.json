@@ -1,0 +1,307 @@
+{
+  "name": "LINE 記帳機器人",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "line-webhook",
+        "options": {}
+      },
+      "name": "LINE Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "id": "webhook-line"
+    },
+    {
+      "parameters": {
+        "functionCode": "// 解析 LINE webhook 資料\nconst events = $json.events;\nif (!events || events.length === 0) {\n  return [];\n}\n\nconst event = events[0];\nconst messageText = event.message?.text || '';\nconst userId = event.source?.userId || '';\nconst replyToken = event.replyToken || '';\n\nreturn [{\n  messageText,\n  userId,\n  replyToken,\n  timestamp: new Date().toISOString()\n}];"
+      },
+      "name": "解析 LINE 資料",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [460, 300],
+      "id": "parse-line-data"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.messageText }}",
+              "operation": "equal",
+              "value2": "查詢"
+            }
+          ]
+        }
+      },
+      "name": "判斷：查詢指令",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 200],
+      "id": "check-query"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.messageText }}",
+              "operation": "equal",
+              "value2": "本月"
+            }
+          ]
+        }
+      },
+      "name": "判斷：本月指令",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 300],
+      "id": "check-monthly"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.messageText }}",
+              "operation": "equal",
+              "value2": "幫助"
+            }
+          ]
+        }
+      },
+      "name": "判斷：幫助指令",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 400],
+      "id": "check-help"
+    },
+    {
+      "parameters": {
+        "functionCode": "// 解析金額的邏輯\nconst text = $json.messageText;\n\n// 金額匹配模式\nconst amountPatterns = [\n  /(\\d+(?:\\.\\d+)?)\\s*元/,\n  /(\\d+(?:\\.\\d+)?)\\s*塊/,\n  /NT\\$?\\s*(\\d+(?:\\.\\d+)?)/,\n  /\\$\\s*(\\d+(?:\\.\\d+)?)/,\n  /花了?\\s*(\\d+(?:\\.\\d+)?)/,\n  /(\\d+(?:\\.\\d+)?)\\s*錢/\n];\n\nlet amount = null;\nfor (const pattern of amountPatterns) {\n  const match = text.match(pattern);\n  if (match) {\n    amount = parseFloat(match[1]);\n    break;\n  }\n}\n\n// 如果沒有明確模式，尋找純數字\nif (!amount) {\n  const numbers = text.match(/\\d+(?:\\.\\d+)?/g);\n  if (numbers) {\n    amount = Math.max(...numbers.map(n => parseFloat(n)));\n  }\n}\n\n// 地點識別\nconst locationKeywords = ['在', '於', '到', '去', '買', '吃'];\nlet location = null;\n\nfor (const keyword of locationKeywords) {\n  const regex = new RegExp(`${keyword}([^，,。！？\\\\s]+)`);\n  const match = text.match(regex);\n  if (match) {\n    location = match[1].trim();\n    break;\n  }\n}\n\n// 類別識別\nconst categoryMap = {\n  '餐廳': '餐飲', '吃': '餐飲', '午餐': '餐飲', '咖啡': '餐飲',\n  '超市': '購物', '買': '購物', '衣服': '購物',\n  '車費': '交通', '停車': '交通', '捷運': '交通',\n  '電影': '娛樂', 'ktv': '娛樂',\n  '醫院': '醫療', '診所': '醫療'\n};\n\nlet category = '其他';\nfor (const [keyword, cat] of Object.entries(categoryMap)) {\n  if (text.toLowerCase().includes(keyword)) {\n    category = cat;\n    break;\n  }\n}\n\nreturn [{\n  ...$json,\n  amount,\n  location,\n  category,\n  isValidExpense: amount && amount > 0\n}];"
+      },
+      "name": "解析金額地點類別",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [680, 500],
+      "id": "parse-expense"
+    },
+    {
+      "parameters": {
+        "functionCode": "const { amount, location, category, isValidExpense } = $json;\n\nif (!isValidExpense) {\n  return [{\n    replyText: `🤔 無法識別金額: \"${$json.messageText}\"\\n\\n💡 請試試:\\n• \"在7-11買飲料50元\"\\n• \"午餐花了120塊\"\\n• \"停車費30元\"`\n  }];\n}\n\nlet response = `✅ 記帳成功！\\n\\n💰 金額: ${amount} 元`;\nif (location) response += `\\n📍 地點: ${location}`;\nif (category) response += `\\n🏷️ 類別: ${category}`;\n\n// 模擬記錄編號\nconst expenseId = Math.floor(Math.random() * 1000) + 1;\nresponse += `\\n\\n記錄編號: #${expenseId}`;\n\nreturn [{ \n  replyText: response,\n  replyToken: $json.replyToken \n}];"
+      },
+      "name": "組裝記帳回應",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [900, 500],
+      "id": "format-expense-response"
+    },
+    {
+      "parameters": {
+        "functionCode": "return [{\n  replyText: `🤖 LINE 記帳機器人\\n\\n💬 支援的訊息格式:\\n• \"在7-11買飲料50元\"\\n• \"午餐花了120塊\"\\n• \"停車費30元\"\\n• \"星巴克咖啡150\"\\n\\n📋 指令:\\n• \"查詢\" - 查看最近記錄\\n• \"本月\" - 本月支出摘要\\n• \"幫助\" - 顯示此說明\\n\\n🏷️ 自動分類：餐飲、購物、交通、娛樂、醫療`,\n  replyToken: $json.replyToken\n}];"
+      },
+      "name": "幫助回應",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [900, 400],
+      "id": "help-response"
+    },
+    {
+      "parameters": {
+        "functionCode": "return [{\n  replyText: `📋 最近支出記錄 (演示):\\n\\n#1 - 12/15 14:30\\n💰 89.0 元 | 📍 麥當勞 | 🏷️ 餐飲\\n\\n#2 - 12/15 12:15\\n💰 26.0 元 | 🏷️ 交通\\n\\n#3 - 12/14 19:45\\n💰 150.0 元 | 📍 星巴克 | 🏷️ 餐飲\\n\\n總計: 265.0 元\\n\\n💡 這是演示資料，實際使用需要連接資料庫`,\n  replyToken: $json.replyToken\n}];"
+      },
+      "name": "查詢回應",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [900, 200],
+      "id": "query-response"
+    },
+    {
+      "parameters": {
+        "functionCode": "const currentDate = new Date();\nconst currentYear = currentDate.getFullYear();\nconst currentMonth = currentDate.getMonth() + 1;\n\nreturn [{\n  replyText: `📊 ${currentYear}年${currentMonth}月支出摘要 (演示):\\n\\n🏷️ 餐飲: 1,250 元 (8 筆)\\n🏷️ 交通: 320 元 (12 筆)\\n🏷️ 購物: 890 元 (5 筆)\\n🏷️ 娛樂: 500 元 (2 筆)\\n\\n💳 總支出: 2,960 元\\n📝 總筆數: 27 筆\\n📈 平均: 109.6 元/筆\\n\\n💡 這是演示資料，實際使用需要連接資料庫`,\n  replyToken: $json.replyToken\n}];"
+      },
+      "name": "本月摘要回應",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [900, 300],
+      "id": "monthly-response"
+    },
+    {
+      "parameters": {
+        "url": "https://api.line.me/v2/bot/message/reply",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "requestMethod": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_CHANNEL_ACCESS_TOKEN"
+            },
+            {
+              "name": "Content-Type", 
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonParameters": {
+          "parameters": [
+            {
+              "name": "replyToken",
+              "value": "={{ $json.replyToken }}"
+            },
+            {
+              "name": "messages",
+              "value": [
+                {
+                  "type": "text",
+                  "text": "={{ $json.replyText }}"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "name": "回應 LINE",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1120, 350],
+      "id": "reply-line"
+    }
+  ],
+  "connections": {
+    "LINE Webhook": {
+      "main": [
+        [
+          {
+            "node": "解析 LINE 資料",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "解析 LINE 資料": {
+      "main": [
+        [
+          {
+            "node": "判斷：查詢指令",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "判斷：本月指令",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "判斷：幫助指令",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "解析金額地點類別",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "判斷：查詢指令": {
+      "main": [
+        [
+          {
+            "node": "查詢回應",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "判斷：本月指令": {
+      "main": [
+        [
+          {
+            "node": "本月摘要回應",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "判斷：幫助指令": {
+      "main": [
+        [
+          {
+            "node": "幫助回應",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "解析金額地點類別": {
+      "main": [
+        [
+          {
+            "node": "組裝記帳回應",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "組裝記帳回應": {
+      "main": [
+        [
+          {
+            "node": "回應 LINE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "幫助回應": {
+      "main": [
+        [
+          {
+            "node": "回應 LINE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "查詢回應": {
+      "main": [
+        [
+          {
+            "node": "回應 LINE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "本月摘要回應": {
+      "main": [
+        [
+          {
+            "node": "回應 LINE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "id": "line-expense-bot"
+} 
