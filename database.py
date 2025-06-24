@@ -113,43 +113,93 @@ class ExpenseDatabase:
         """新增支出記錄"""
         conn = None
         try:
-            print(f"🔍 DEBUG: 開始新增記錄 - user_id: {user_id}, amount: {amount}, description: {description}")
+            print(f"🔍 DATABASE DEBUG: === 開始資料庫新增操作 ===")
+            print(f"🔍 DATABASE DEBUG: user_id: {user_id}")
+            print(f"🔍 DATABASE DEBUG: amount: {amount} (類型: {type(amount)})")
+            print(f"🔍 DATABASE DEBUG: description: {description}")
+            print(f"🔍 DATABASE DEBUG: location: {location}")
+            print(f"🔍 DATABASE DEBUG: category: {category}")
+            print(f"�� DATABASE DEBUG: 使用資料庫類型: {'PostgreSQL' if self.use_postgresql else 'SQLite'}")
             
+            # 測試連線
+            print(f"🔍 DATABASE DEBUG: 嘗試建立資料庫連線...")
             conn = self.get_connection()
+            print(f"🔍 DATABASE DEBUG: 資料庫連線成功 ✅")
+            
             cursor = conn.cursor()
+            print(f"🔍 DATABASE DEBUG: 建立 cursor 成功")
             
             if self.use_postgresql:
-                # PostgreSQL 使用 RETURNING 獲取 ID
-                cursor.execute('''
+                print(f"🔍 DATABASE DEBUG: 使用 PostgreSQL 插入語法...")
+                sql = '''
                     INSERT INTO expenses (user_id, amount, location, description, category)
                     VALUES (%s, %s, %s, %s, %s) RETURNING id
-                ''', (user_id, amount, location, description, category))
+                '''
+                params = (user_id, amount, location, description, category)
+                print(f"🔍 DATABASE DEBUG: SQL: {sql}")
+                print(f"�� DATABASE DEBUG: 參數: {params}")
                 
-                expense_id = cursor.fetchone()[0]
-                print(f"🔍 DEBUG: PostgreSQL 返回 ID: {expense_id}")
+                cursor.execute(sql, params)
+                print(f"🔍 DATABASE DEBUG: SQL 執行完成")
+                
+                result = cursor.fetchone()
+                print(f"🔍 DATABASE DEBUG: fetchone() 結果: {result}")
+                print(f"🔍 DATABASE DEBUG: fetchone() 結果類型: {type(result)}")
+                
+                if result:
+                    expense_id = result[0]
+                    print(f"🔍 DATABASE DEBUG: PostgreSQL 返回 ID: {expense_id} (類型: {type(expense_id)})")
+                else:
+                    print(f"❌ DATABASE DEBUG: fetchone() 回傳 None")
+                    expense_id = None
             else:
-                # SQLite 使用 lastrowid
-                cursor.execute('''
+                print(f"🔍 DATABASE DEBUG: 使用 SQLite 插入語法...")
+                sql = '''
                     INSERT INTO expenses (user_id, amount, location, description, category)
                     VALUES (?, ?, ?, ?, ?)
-                ''', (user_id, amount, location, description, category))
+                '''
+                params = (user_id, amount, location, description, category)
+                print(f"🔍 DATABASE DEBUG: SQL: {sql}")
+                print(f"🔍 DATABASE DEBUG: 參數: {params}")
+                
+                cursor.execute(sql, params)
+                print(f"🔍 DATABASE DEBUG: SQL 執行完成")
                 
                 expense_id = cursor.lastrowid
-                print(f"🔍 DEBUG: SQLite 返回 ID: {expense_id}")
+                print(f"🔍 DATABASE DEBUG: SQLite lastrowid: {expense_id} (類型: {type(expense_id)})")
             
+            print(f"🔍 DATABASE DEBUG: 準備 commit...")
             conn.commit()
-            conn.close()
+            print(f"🔍 DATABASE DEBUG: commit 完成")
             
-            print(f"✅ DEBUG: 成功新增記錄，ID: {expense_id}")
+            print(f"🔍 DATABASE DEBUG: 關閉連線...")
+            conn.close()
+            print(f"🔍 DATABASE DEBUG: 連線已關閉")
+            
+            print(f"✅ DATABASE DEBUG: 成功新增記錄，最終 ID: {expense_id}")
             return expense_id
             
         except Exception as e:
-            print(f"❌ DEBUG: 新增記錄失敗 - 類型: {type(e).__name__}, 訊息: {str(e)}")
+            print(f"❌ DATABASE DEBUG: === 資料庫操作發生異常 ===")
+            print(f"❌ DATABASE DEBUG: 異常類型: {type(e).__name__}")
+            print(f"❌ DATABASE DEBUG: 異常訊息: {str(e)}")
+            print(f"❌ DATABASE DEBUG: 異常值: {repr(e)}")
+            
+            # 檢查連線狀態
             if conn:
                 try:
+                    print(f"🔍 DATABASE DEBUG: 嘗試回滾交易...")
+                    conn.rollback()
+                    print(f"🔍 DATABASE DEBUG: 回滾完成")
                     conn.close()
-                except:
-                    pass
+                    print(f"🔍 DATABASE DEBUG: 連線已關閉")
+                except Exception as close_e:
+                    print(f"❌ DATABASE DEBUG: 關閉連線時發生錯誤: {close_e}")
+            
+            import traceback
+            print(f"❌ DATABASE DEBUG: 完整 traceback:")
+            traceback.print_exc()
+            
             raise e
     
     def get_user_expenses(self, user_id, limit=10):
