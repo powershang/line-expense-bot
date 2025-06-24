@@ -8,8 +8,10 @@ try:
     import psycopg2
     from psycopg2.extras import RealDictCursor
     HAS_POSTGRESQL = True
-except ImportError:
+    print(f"🔧 DATABASE: psycopg2 導入成功 ✅")
+except ImportError as e:
     HAS_POSTGRESQL = False
+    print(f"🔧 DATABASE: psycopg2 導入失敗 ❌ - {e}")
 
 class ExpenseDatabase:
     def __init__(self):
