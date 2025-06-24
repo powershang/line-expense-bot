@@ -1,107 +1,7 @@
-import sys
-sys.stdout.write(f"🔍 FORCED DEBUG: Starting app\n")
-sys.stdout.flush()
-
-from flask import Flask, request, abort
-from linebot import LineBotApi, WebhookHandler
-from linebot.exceptions import InvalidSignatureError
-from linebot.models import (
-    MessageEvent, TextMessage, TextSendMessage,
-    QuickReply, QuickReplyButton, MessageAction
-)
-from datetime import datetime
-import logging
-
-from config import LINE_CHANNEL_ACCESS_TOKEN, LINE_CHANNEL_SECRET, PORT, DATABASE_URL
-from database import ExpenseDatabase
-from message_parser import MessageParser
-
-# 設定日誌
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# 🔍 除錯訊息 - 檢查設定
-print(f"🔍 DEBUG: TOKEN 長度: {len(LINE_CHANNEL_ACCESS_TOKEN)}")
-print(f"🔍 DEBUG: TOKEN 開頭: {LINE_CHANNEL_ACCESS_TOKEN[:30]}...")
-print(f"🔍 DEBUG: TOKEN 結尾: ...{LINE_CHANNEL_ACCESS_TOKEN[-10:]}")
-print(f"🔍 DEBUG: SECRET 長度: {len(LINE_CHANNEL_SECRET)}")
-print(f"🔍 DEBUG: SECRET: {LINE_CHANNEL_SECRET}")
-print(f"🔍 DEBUG: DATABASE_URL: {'✅ 已設定 PostgreSQL' if DATABASE_URL else '⚠️ 使用 SQLite'}")
-
-# 詳細的資料庫設定檢查
-if DATABASE_URL:
-    print(f"🔍 DEBUG: DATABASE_URL 內容: {DATABASE_URL[:50]}...")
-    print(f"🔍 DEBUG: DATABASE_URL 長度: {len(DATABASE_URL)}")
-else:
-    print(f"🔍 DEBUG: DATABASE_URL 為空")
-
-# 檢查 PostgreSQL 支援
-try:
-    import psycopg2
-    print(f"🔍 DEBUG: psycopg2 可用: ✅")
-except ImportError:
-    print(f"🔍 DEBUG: psycopg2 不可用: ❌")
-
-print(f"🔍 DEBUG: PORT: {PORT}")
-
-# 初始化 Flask 應用程式
-app = Flask(__name__)
-
-# 初始化 LINE Bot API
-line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
-handler = WebhookHandler(LINE_CHANNEL_SECRET)
-
-# 初始化資料庫和訊息解析器
-db = ExpenseDatabase()
-parser = MessageParser()
-
-print(f"🔍 DEBUG: 資料庫類型: {'PostgreSQL' if db.use_postgresql else 'SQLite'}")
-
-class ExpenseBot:
-    def __init__(self):
-        self.commands = {
-            '記帳': self.show_expense_help,
-            '查詢': self.show_recent_expenses,
-            '本月': self.show_monthly_summary,
-            '總金額': self.show_monthly_total,
-            '統計': self.show_all_time_stats,
-            '當前統計': self.show_current_stats,
-            '重新統計': self.confirm_reset_current_stats,
-            '確認重新統計': self.reset_current_stats,
-            '取消重新統計': self.cancel_reset_stats,
-            '幫助': self.show_help,
-            '說明': self.show_help
-        }
-    
-    def handle_message(self, user_id, message_text):
-        """處理用戶訊息"""
-        # 檢查是否為指令
-        if message_text.strip() in self.commands:
-            return self.commands[message_text.strip()](user_id)
-        
-        # 嘗試解析為支出記錄
-        parsed_data = parser.parse_message(message_text)
-        
-        if parser.is_valid_expense(parsed_data):
-            return self.add_expense(user_id, parsed_data)
-        else:
-            return self.suggest_format(message_text)
-    
-    def add_expense(self, user_id, parsed_data):
-        """新增支出記錄"""
-        try:
-            print(f"🔍 DEBUG: 開始新增支出記錄 - user_id: {user_id}")
-            print(f"🔍 DEBUG: 解析資料: {parsed_data}")
+                print(f"❌ DEBUG: expense_id 無效: {expense_id}")
+                raise ValueError(f"資料庫回傳無效的 ID: {expense_id}")
             
-            expense_id = db.add_expense(
-                user_id=user_id,
-                amount=parsed_data['amount'],
-                description=parsed_data['reason'] or parsed_data['description'],
-                location=None,  # 不再使用地點
-                category=None   # 不再使用分類
-            )
-            
-            print(f"🔍 DEBUG: 新增成功，記錄ID: {expense_id}")
+            print(f"✅ DEBUG: 新增成功，記錄ID: {expense_id}")
             
             summary = parser.format_expense_summary(parsed_data)
             
@@ -117,7 +17,13 @@ class ExpenseBot:
             return TextSendMessage(text=response, quick_reply=quick_reply)
             
         except Exception as e:
-            print(f"❌ DEBUG: add_expense 錯誤 - 類型: {type(e).__name__}, 訊息: {str(e)}")
+            print(f"❌ DEBUG: add_expense 完整錯誤資訊:")
+            print(f"  - 錯誤類型: {type(e).__name__}")
+            print(f"  - 錯誤訊息: {str(e)}")
+            print(f"  - 錯誤值: {repr(e)}")
+            import traceback
+            print(f"  - 完整追蹤: {traceback.format_exc()}")
+            
             logger.error(f"新增支出記錄時發生錯誤: {e}")
             return TextSendMessage(text="❌ 記帳失敗，請稍後再試。")
     
