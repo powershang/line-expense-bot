@@ -1,7 +1,4 @@
 import sys
-sys.stdout.write(f"🔍 FORCED DEBUG: Starting app\n")
-sys.stdout.flush()
-
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -20,30 +17,6 @@ from message_parser import MessageParser
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 🔍 除錯訊息 - 檢查設定
-print(f"🔍 DEBUG: TOKEN 長度: {len(LINE_CHANNEL_ACCESS_TOKEN)}")
-print(f"🔍 DEBUG: TOKEN 開頭: {LINE_CHANNEL_ACCESS_TOKEN[:30]}...")
-print(f"🔍 DEBUG: TOKEN 結尾: ...{LINE_CHANNEL_ACCESS_TOKEN[-10:]}")
-print(f"🔍 DEBUG: SECRET 長度: {len(LINE_CHANNEL_SECRET)}")
-print(f"🔍 DEBUG: SECRET: {LINE_CHANNEL_SECRET}")
-print(f"🔍 DEBUG: DATABASE_URL: {'✅ 已設定 PostgreSQL' if DATABASE_URL else '⚠️ 使用 SQLite'}")
-
-# 詳細的資料庫設定檢查
-if DATABASE_URL:
-    print(f"🔍 DEBUG: DATABASE_URL 內容: {DATABASE_URL[:50]}...")
-    print(f"🔍 DEBUG: DATABASE_URL 長度: {len(DATABASE_URL)}")
-else:
-    print(f"🔍 DEBUG: DATABASE_URL 為空")
-
-# 檢查 PostgreSQL 支援
-try:
-    import psycopg2
-    print(f"🔍 DEBUG: psycopg2 可用: ✅")
-except ImportError:
-    print(f"🔍 DEBUG: psycopg2 不可用: ❌")
-
-print(f"🔍 DEBUG: PORT: {PORT}")
-
 # 初始化 Flask 應用程式
 app = Flask(__name__)
 
@@ -54,8 +27,6 @@ handler = WebhookHandler(LINE_CHANNEL_SECRET)
 # 初始化資料庫和訊息解析器
 db = ExpenseDatabase()
 parser = MessageParser()
-
-print(f"🔍 DEBUG: 資料庫類型: {'PostgreSQL' if db.use_postgresql else 'SQLite'}")
 
 class ExpenseBot:
     def __init__(self):
@@ -75,42 +46,24 @@ class ExpenseBot:
     
     def handle_message(self, user_id, message_text):
         """處理用戶訊息"""
-        print(f"🔍 HANDLE DEBUG: === 開始處理訊息 ===")
-        print(f"🔍 HANDLE DEBUG: user_id: {user_id}")
-        print(f"🔍 HANDLE DEBUG: message_text: '{message_text}'")
-        
         # 檢查是否為指令
         if message_text.strip() in self.commands:
-            print(f"🔍 HANDLE DEBUG: 識別為指令: {message_text.strip()}")
             return self.commands[message_text.strip()](user_id)
         
         # 嘗試解析為支出記錄
-        print(f"🔍 HANDLE DEBUG: 嘗試解析為支出記錄...")
         parsed_data = parser.parse_message(message_text)
-        print(f"🔍 HANDLE DEBUG: 解析結果: {parsed_data}")
         
         if parser.is_valid_expense(parsed_data):
-            print(f"🔍 HANDLE DEBUG: 驗證通過，呼叫 add_expense")
             return self.add_expense(user_id, parsed_data)
         else:
-            print(f"🔍 HANDLE DEBUG: 驗證失敗，顯示格式建議")
             return self.suggest_format(message_text)
     
     def add_expense(self, user_id, parsed_data):
         """新增支出記錄"""
         try:
-            print(f"🔍 DEBUG: === 開始新增支出記錄 ===")
-            print(f"🔍 DEBUG: user_id: {user_id}")
-            print(f"🔍 DEBUG: parsed_data: {parsed_data}")
-            print(f"🔍 DEBUG: amount: {parsed_data.get('amount')}")
-            print(f"🔍 DEBUG: description: {parsed_data.get('reason') or parsed_data.get('description')}")
-            
             # 檢查解析資料是否有效
             if not parsed_data.get('amount'):
-                print(f"❌ DEBUG: 金額為空或無效: {parsed_data.get('amount')}")
                 return TextSendMessage(text="❌ 無法識別金額，請重新輸入。")
-            
-            print(f"🔍 DEBUG: 呼叫 db.add_expense...")
             
             expense_id = db.add_expense(
                 user_id=user_id,
@@ -120,14 +73,8 @@ class ExpenseBot:
                 category=None   # 不再使用分類
             )
             
-            print(f"🔍 DEBUG: db.add_expense 回傳值: {expense_id}")
-            print(f"🔍 DEBUG: expense_id 類型: {type(expense_id)}")
-            
             if expense_id is None or expense_id == 0:
-                print(f"❌ DEBUG: expense_id 無效: {expense_id}")
                 return TextSendMessage(text="❌ 記帳失敗：無法取得記錄ID。")
-            
-            print(f"✅ DEBUG: 新增成功，記錄ID: {expense_id}")
             
             summary = parser.format_expense_summary(parsed_data)
             
@@ -143,13 +90,6 @@ class ExpenseBot:
             return TextSendMessage(text=response, quick_reply=quick_reply)
             
         except Exception as e:
-            print(f"❌ DEBUG: === add_expense 發生異常 ===")
-            print(f"❌ DEBUG: 異常類型: {type(e).__name__}")
-            print(f"❌ DEBUG: 異常訊息: {str(e)}")
-            print(f"❌ DEBUG: 異常值: {repr(e)}")
-            import traceback
-            print(f"❌ DEBUG: 完整 traceback:")
-            traceback.print_exc()
             logger.error(f"新增支出記錄時發生錯誤: {e}")
             return TextSendMessage(text="❌ 記帳失敗，請稍後再試。")
     
@@ -574,35 +514,28 @@ def handle_message(event):
     logger.info(f"收到用戶 {user_id} 的訊息: {message_text}")
     
     try:
-        # 檢查是否為重複請求
-        if hasattr(event, 'webhook_event_id'):
-            print(f"🔍 DEBUG: Webhook Event ID: {event.webhook_event_id}")
-        
         # 使用機器人處理訊息
         reply_message = bot.handle_message(user_id, message_text)
         
         # 回覆訊息 - 加入更好的錯誤處理
         try:
             line_bot_api.reply_message(event.reply_token, reply_message)
-            print(f"✅ DEBUG: 成功回覆訊息")
         except Exception as reply_error:
-            print(f"⚠️ DEBUG: Reply 失敗: {reply_error}")
             # 如果是 reply token 問題，不要拋出錯誤（避免 500 錯誤）
             if "Invalid reply token" in str(reply_error):
-                print("💡 DEBUG: Reply token 已過期或重複使用，這是正常的重送請求")
+                logger.info("Reply token 已過期或重複使用，這是正常的重送請求")
             else:
                 raise reply_error
         
     except Exception as e:
         logger.error(f"處理訊息時發生錯誤: {e}")
-        print(f"❌ DEBUG: 詳細錯誤 - 類型: {type(e)}, 訊息: {str(e)}")
         
         # 只有在 reply token 有效時才嘗試回覆錯誤訊息
         try:
             error_message = TextSendMessage(text="❌ 系統發生錯誤，請稍後再試。")
             line_bot_api.reply_message(event.reply_token, error_message)
         except:
-            print("💡 DEBUG: 無法發送錯誤訊息，可能是 reply token 問題")
+            logger.info("無法發送錯誤訊息，可能是 reply token 問題")
 
 @app.route("/")
 def index():

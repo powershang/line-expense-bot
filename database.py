@@ -400,7 +400,11 @@ class ExpenseDatabase:
         reset_result = cursor.fetchone()
         
         if reset_result:
-            reset_date = reset_result[0] if self.use_postgresql else reset_result[0]
+            # 處理 PostgreSQL DictRow 和 SQLite tuple 的差異
+            if self.use_postgresql:
+                reset_date = reset_result['stats_reset_date'] if hasattr(reset_result, '__getitem__') and 'stats_reset_date' in reset_result else reset_result[0]
+            else:
+                reset_date = reset_result[0]
         else:
             # 如果沒有設定，創建設定並使用第一筆記錄的時間
             cursor.execute('''
@@ -410,7 +414,18 @@ class ExpenseDatabase:
             ''', (user_id,))
             
             first_record = cursor.fetchone()
-            reset_date = first_record[0] if first_record and first_record[0] else datetime.now().isoformat()
+            
+            # 處理 first_record 的類型差異
+            if first_record:
+                if self.use_postgresql:
+                    reset_date = first_record['min'] if hasattr(first_record, '__getitem__') and 'min' in first_record else first_record[0]
+                else:
+                    reset_date = first_record[0]
+            else:
+                reset_date = None
+            
+            if not reset_date:
+                reset_date = datetime.now().isoformat()
             
             # 創建用戶設定
             if self.use_postgresql:
@@ -441,10 +456,19 @@ class ExpenseDatabase:
         conn.close()
         
         if self.use_postgresql:
-            total_amount = result[0] or 0
-            total_count = result[1] or 0
-            first_record = result[2]
-            last_record = result[3]
+            # 處理 PostgreSQL DictRow
+            if hasattr(result, 'keys'):
+                # 如果是 DictRow，使用欄位名稱
+                total_amount = result.get('sum', 0) or 0
+                total_count = result.get('count', 0) or 0
+                first_record = result.get('min')
+                last_record = result.get('max')
+            else:
+                # 如果是 tuple，使用索引
+                total_amount = result[0] or 0
+                total_count = result[1] or 0
+                first_record = result[2]
+                last_record = result[3]
         else:
             total_amount = result[0] or 0
             total_count = result[1] or 0
