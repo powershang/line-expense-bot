@@ -18,7 +18,6 @@ if DEBUG_MODE:
         LINE_CHANNEL_ACCESS_TOKEN = 'dummy_token_for_local_debug'
     if not LINE_CHANNEL_SECRET:
         LINE_CHANNEL_SECRET = 'dummy_secret_for_local_debug'
-    print("🔍 DEBUG: 使用調試模式，LINE tokens 已設為假值")
 
 # 檢查必要的環境變數（非調試模式才檢查）
 if not DEBUG_MODE:
