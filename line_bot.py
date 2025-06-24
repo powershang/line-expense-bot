@@ -90,6 +90,9 @@ class ExpenseBot:
     def add_expense(self, user_id, parsed_data):
         """新增支出記錄"""
         try:
+            print(f"🔍 DEBUG: 開始新增支出記錄 - user_id: {user_id}")
+            print(f"🔍 DEBUG: 解析資料: {parsed_data}")
+            
             expense_id = db.add_expense(
                 user_id=user_id,
                 amount=parsed_data['amount'],
@@ -97,6 +100,8 @@ class ExpenseBot:
                 location=None,  # 不再使用地點
                 category=None   # 不再使用分類
             )
+            
+            print(f"🔍 DEBUG: 新增成功，記錄ID: {expense_id}")
             
             summary = parser.format_expense_summary(parsed_data)
             
@@ -112,6 +117,7 @@ class ExpenseBot:
             return TextSendMessage(text=response, quick_reply=quick_reply)
             
         except Exception as e:
+            print(f"❌ DEBUG: add_expense 錯誤 - 類型: {type(e).__name__}, 訊息: {str(e)}")
             logger.error(f"新增支出記錄時發生錯誤: {e}")
             return TextSendMessage(text="❌ 記帳失敗，請稍後再試。")
     
