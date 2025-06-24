@@ -542,6 +542,51 @@ def index():
     """首頁"""
     return "LINE 記帳機器人運行中！"
 
+def get_user_profile(user_id):
+    """獲取 LINE 用戶資料，優先從資料庫查詢"""
+    try:
+        # 先從資料庫查詢
+        profile_data = db.get_user_profile(user_id)
+        
+        if profile_data:
+            # 如果資料庫有資料，直接使用
+            return profile_data
+        else:
+            # 如果資料庫沒有，從 LINE API 查詢
+            try:
+                profile = line_bot_api.get_profile(user_id)
+                profile_data = {
+                    'display_name': profile.display_name,
+                    'picture_url': profile.picture_url,
+                    'status_message': profile.status_message
+                }
+                
+                # 儲存到資料庫供下次使用
+                db.save_user_profile(
+                    user_id, 
+                    profile.display_name, 
+                    profile.picture_url, 
+                    profile.status_message
+                )
+                
+                return profile_data
+                
+            except Exception as api_error:
+                logger.error(f"LINE API 查詢失敗: {api_error}")
+                return {
+                    'display_name': f'用戶 {user_id[:8]}...',
+                    'picture_url': None,
+                    'status_message': None
+                }
+                
+    except Exception as e:
+        logger.error(f"獲取用戶資料失敗: {e}")
+        return {
+            'display_name': f'用戶 {user_id[:8]}...',
+            'picture_url': None,
+            'status_message': None
+        }
+
 @app.route("/admin")
 def admin_dashboard():
     """管理員儀表板"""
@@ -585,6 +630,10 @@ def admin_dashboard():
                 th {{ background-color: #f2f2f2; }}
                 .header {{ background-color: #4CAF50; color: white; padding: 20px; text-align: center; }}
                 .stats {{ background-color: #f9f9f9; padding: 15px; margin: 20px 0; }}
+                .user-info {{ display: flex; align-items: center; }}
+                .user-avatar {{ width: 30px; height: 30px; border-radius: 50%; margin-right: 10px; }}
+                .user-name {{ font-weight: bold; }}
+                .user-id {{ font-size: 0.8em; color: #666; }}
             </style>
         </head>
         <body>
@@ -601,7 +650,7 @@ def admin_dashboard():
             <h2>📋 用戶記錄概覽</h2>
             <table>
                 <tr>
-                    <th>用戶ID</th>
+                    <th>用戶資料</th>
                     <th>記錄筆數</th>
                     <th>總金額</th>
                     <th>最後記錄時間</th>
@@ -610,9 +659,25 @@ def admin_dashboard():
         """
         
         for user_id, count, total, last_record in users:
+            # 獲取用戶資料
+            user_profile = get_user_profile(user_id)
+            display_name = user_profile['display_name']
+            picture_url = user_profile['picture_url']
+            
+            # 建立用戶顯示信息
+            avatar_img = f'<img src="{picture_url}" class="user-avatar" alt="頭像">' if picture_url else '👤'
+            
             html += f"""
                 <tr>
-                    <td>{user_id[:20]}...</td>
+                    <td>
+                        <div class="user-info">
+                            {avatar_img}
+                            <div>
+                                <div class="user-name">{display_name}</div>
+                                <div class="user-id">{user_id[:20]}...</div>
+                            </div>
+                        </div>
+                    </td>
                     <td>{count}</td>
                     <td>${total:.0f}</td>
                     <td>{last_record}</td>
@@ -641,13 +706,21 @@ def admin_dashboard():
 def admin_user_details(user_id):
     """查看特定用戶的詳細記錄"""
     try:
+        # 獲取用戶資料
+        user_profile = get_user_profile(user_id)
+        display_name = user_profile['display_name']
+        picture_url = user_profile['picture_url']
+        
         expenses = db.get_user_expenses(user_id, limit=50)
+        
+        # 建立頭像顯示
+        avatar_img = f'<img src="{picture_url}" style="width: 50px; height: 50px; border-radius: 50%; margin-right: 15px;" alt="頭像">' if picture_url else '👤'
         
         html = f"""
         <!DOCTYPE html>
         <html>
         <head>
-            <title>用戶記錄 - {user_id}</title>
+            <title>用戶記錄 - {display_name}</title>
             <meta charset="UTF-8">
             <style>
                 body {{ font-family: Arial, sans-serif; margin: 20px; }}
@@ -656,12 +729,23 @@ def admin_user_details(user_id):
                 th {{ background-color: #f2f2f2; }}
                 .header {{ background-color: #2196F3; color: white; padding: 20px; text-align: center; }}
                 .back {{ margin: 20px 0; }}
+                .user-header {{ display: flex; align-items: center; justify-content: center; margin: 20px 0; }}
+                .user-details {{ background-color: #f9f9f9; padding: 15px; margin: 20px 0; border-radius: 8px; }}
             </style>
         </head>
         <body>
             <div class="header">
                 <h1>👤 用戶記錄詳細</h1>
-                <p>用戶ID: {user_id}</p>
+            </div>
+            
+            <div class="user-details">
+                <div class="user-header">
+                    {avatar_img}
+                    <div>
+                        <h2>{display_name}</h2>
+                        <p style="color: #666; margin: 5px 0;">用戶ID: {user_id}</p>
+                    </div>
+                </div>
             </div>
             
             <div class="back">
@@ -699,7 +783,7 @@ def admin_user_details(user_id):
             </table>
             
             <div style="margin-top: 20px; background-color: #f9f9f9; padding: 15px;">
-                <h3>📊 統計摘要</h3>
+                <h3>📊 統計摘要 - {display_name}</h3>
                 <p>顯示記錄數: {len(expenses)}</p>
                 <p>顯示總金額: ${total:.0f}</p>
             </div>

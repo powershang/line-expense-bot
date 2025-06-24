@@ -78,6 +78,18 @@ class ExpenseDatabase:
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 ''')
+                
+                # 新增用戶資料表
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS user_profiles (
+                        user_id TEXT PRIMARY KEY,
+                        display_name TEXT,
+                        picture_url TEXT,
+                        status_message TEXT,
+                        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                
                 print(f"🔧 DATABASE: PostgreSQL 資料表建立完成")
             else:
                 # SQLite 語法
@@ -100,6 +112,18 @@ class ExpenseDatabase:
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
                 ''')
+                
+                # 新增用戶資料表
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS user_profiles (
+                        user_id TEXT PRIMARY KEY,
+                        display_name TEXT,
+                        picture_url TEXT,
+                        status_message TEXT,
+                        last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                
                 print(f"🔧 DATABASE: SQLite 資料表建立完成")
             
             conn.commit()
@@ -509,4 +533,89 @@ class ExpenseDatabase:
         conn.commit()
         conn.close()
         
-        return current_stats 
+        return current_stats
+    
+    def save_user_profile(self, user_id, display_name, picture_url, status_message):
+        """儲存或更新用戶資料"""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            if self.use_postgresql:
+                cursor.execute('''
+                    INSERT INTO user_profiles (user_id, display_name, picture_url, status_message)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        display_name = EXCLUDED.display_name,
+                        picture_url = EXCLUDED.picture_url,
+                        status_message = EXCLUDED.status_message,
+                        last_updated = CURRENT_TIMESTAMP
+                ''', (user_id, display_name, picture_url, status_message))
+            else:
+                cursor.execute('''
+                    INSERT OR REPLACE INTO user_profiles (user_id, display_name, picture_url, status_message)
+                    VALUES (?, ?, ?, ?)
+                ''', (user_id, display_name, picture_url, status_message))
+            
+            conn.commit()
+            conn.close()
+            
+        except Exception as e:
+            print(f"❌ DATABASE: 儲存用戶資料失敗 - {e}")
+            if conn:
+                try:
+                    conn.close()
+                except:
+                    pass
+            raise e
+    
+    def get_user_profile(self, user_id):
+        """從資料庫取得用戶資料"""
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            if self.use_postgresql:
+                cursor.execute('''
+                    SELECT display_name, picture_url, status_message, last_updated
+                    FROM user_profiles
+                    WHERE user_id = %s
+                ''', (user_id,))
+            else:
+                cursor.execute('''
+                    SELECT display_name, picture_url, status_message, last_updated
+                    FROM user_profiles
+                    WHERE user_id = ?
+                ''', (user_id,))
+            
+            result = cursor.fetchone()
+            conn.close()
+            
+            if result:
+                if self.use_postgresql:
+                    return {
+                        'display_name': result['display_name'],
+                        'picture_url': result['picture_url'],
+                        'status_message': result['status_message'],
+                        'last_updated': result['last_updated']
+                    }
+                else:
+                    return {
+                        'display_name': result[0],
+                        'picture_url': result[1],
+                        'status_message': result[2],
+                        'last_updated': result[3]
+                    }
+            else:
+                return None
+                
+        except Exception as e:
+            print(f"❌ DATABASE: 查詢用戶資料失敗 - {e}")
+            if conn:
+                try:
+                    conn.close()
+                except:
+                    pass
+            return None 
