@@ -542,6 +542,93 @@ def index():
     """首頁"""
     return "LINE 記帳機器人運行中！"
 
+@app.route("/version")
+def version_info():
+    """顯示當前版本信息"""
+    import subprocess
+    import os
+    from datetime import datetime
+    
+    try:
+        # 嘗試獲取 Git commit 信息
+        try:
+            commit_hash = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode('utf-8').strip()
+            commit_message = subprocess.check_output(['git', 'log', '-1', '--pretty=%B']).decode('utf-8').strip()
+            commit_date = subprocess.check_output(['git', 'log', '-1', '--pretty=%ci']).decode('utf-8').strip()
+        except:
+            commit_hash = "無法取得"
+            commit_message = "Git 信息不可用"
+            commit_date = "未知"
+        
+        # 獲取環境信息
+        database_type = "PostgreSQL" if DATABASE_URL else "SQLite"
+        
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>版本信息 - LINE 記帳機器人</title>
+            <meta charset="UTF-8">
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }}
+                .container {{ max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+                .header {{ background-color: #4CAF50; color: white; padding: 20px; text-align: center; border-radius: 8px; margin-bottom: 20px; }}
+                .info-item {{ margin: 15px 0; padding: 10px; background-color: #f9f9f9; border-left: 4px solid #4CAF50; }}
+                .commit-hash {{ font-family: monospace; background: #e8e8e8; padding: 2px 6px; border-radius: 3px; }}
+                .timestamp {{ color: #666; font-size: 0.9em; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>🚀 版本信息</h1>
+                    <p>LINE 記帳機器人部署狀態</p>
+                </div>
+                
+                <div class="info-item">
+                    <strong>📋 當前 Commit:</strong><br>
+                    <span class="commit-hash">{commit_hash}</span>
+                </div>
+                
+                <div class="info-item">
+                    <strong>💬 Commit 訊息:</strong><br>
+                    {commit_message}
+                </div>
+                
+                <div class="info-item">
+                    <strong>📅 Commit 時間:</strong><br>
+                    <span class="timestamp">{commit_date}</span>
+                </div>
+                
+                <div class="info-item">
+                    <strong>🗄️ 資料庫類型:</strong><br>
+                    {database_type}
+                </div>
+                
+                <div class="info-item">
+                    <strong>⏰ 檢查時間:</strong><br>
+                    <span class="timestamp">{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (伺服器時間)</span>
+                </div>
+                
+                <div class="info-item">
+                    <strong>🌐 環境:</strong><br>
+                    {'Render (線上環境)' if DATABASE_URL else '本地開發環境'}
+                </div>
+                
+                <div style="text-align: center; margin-top: 20px;">
+                    <a href="/admin" style="color: #4CAF50; text-decoration: none;">📊 管理界面</a> |
+                    <a href="/" style="color: #4CAF50; text-decoration: none;">🏠 首頁</a>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        return html
+        
+    except Exception as e:
+        return f"版本檢查錯誤: {str(e)}"
+
 def get_user_profile(user_id):
     """獲取 LINE 用戶資料，優先從資料庫查詢"""
     try:
