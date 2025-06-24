@@ -119,7 +119,7 @@ class ExpenseDatabase:
             print(f"🔍 DATABASE DEBUG: description: {description}")
             print(f"🔍 DATABASE DEBUG: location: {location}")
             print(f"🔍 DATABASE DEBUG: category: {category}")
-            print(f"�� DATABASE DEBUG: 使用資料庫類型: {'PostgreSQL' if self.use_postgresql else 'SQLite'}")
+            print(f"🔍 DATABASE DEBUG: 使用資料庫類型: {'PostgreSQL' if self.use_postgresql else 'SQLite'}")
             
             # 測試連線
             print(f"🔍 DATABASE DEBUG: 嘗試建立資料庫連線...")
@@ -137,7 +137,7 @@ class ExpenseDatabase:
                 '''
                 params = (user_id, amount, location, description, category)
                 print(f"🔍 DATABASE DEBUG: SQL: {sql}")
-                print(f"�� DATABASE DEBUG: 參數: {params}")
+                print(f"🔍 DATABASE DEBUG: 參數: {params}")
                 
                 cursor.execute(sql, params)
                 print(f"🔍 DATABASE DEBUG: SQL 執行完成")
@@ -147,7 +147,12 @@ class ExpenseDatabase:
                 print(f"🔍 DATABASE DEBUG: fetchone() 結果類型: {type(result)}")
                 
                 if result:
-                    expense_id = result[0]
+                    # PostgreSQL psycopg2 返回的是 tuple，直接用索引
+                    if isinstance(result, (list, tuple)):
+                        expense_id = result[0]
+                    else:
+                        # 如果是 DictRow 或其他類型，嘗試用 'id' 鍵
+                        expense_id = result['id'] if hasattr(result, '__getitem__') and 'id' in result else result[0]
                     print(f"🔍 DATABASE DEBUG: PostgreSQL 返回 ID: {expense_id} (類型: {type(expense_id)})")
                 else:
                     print(f"❌ DATABASE DEBUG: fetchone() 回傳 None")
