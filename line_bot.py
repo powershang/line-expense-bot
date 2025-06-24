@@ -168,9 +168,31 @@ class ExpenseBot:
                 expense_id, amount, location, description, category, timestamp = expense
                 total += amount
                 
-                # 格式化時間
-                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-                time_str = dt.strftime('%m/%d %H:%M')
+                # 格式化時間 - 添加錯誤處理
+                try:
+                    if timestamp:
+                        # 處理不同的時間格式
+                        if isinstance(timestamp, str):
+                            # 移除 Z 並替換為 +00:00，或直接使用原格式
+                            if 'Z' in timestamp:
+                                timestamp_clean = timestamp.replace('Z', '+00:00')
+                            elif '+' in timestamp or 'T' in timestamp:
+                                timestamp_clean = timestamp
+                            else:
+                                # 如果是 YYYY-MM-DD HH:MM:SS 格式，直接解析
+                                timestamp_clean = timestamp
+                            
+                            dt = datetime.fromisoformat(timestamp_clean)
+                        else:
+                            # 如果是 datetime 對象
+                            dt = timestamp
+                        
+                        time_str = dt.strftime('%m/%d %H:%M')
+                    else:
+                        time_str = '時間未知'
+                except Exception as time_error:
+                    print(f"❌ 時間格式化錯誤: {time_error}, timestamp: {timestamp}, type: {type(timestamp)}")
+                    time_str = '時間格式錯誤'
                 
                 response += f"#{expense_id} - {time_str}\n"
                 response += f"📝 {description} - 💰 {amount:.0f} 元\n\n"
@@ -180,6 +202,10 @@ class ExpenseBot:
             return TextSendMessage(text=response)
             
         except Exception as e:
+            print(f"❌ 查詢支出記錄詳細錯誤: {type(e).__name__}: {str(e)}")
+            print(f"❌ 錯誤完整信息: {repr(e)}")
+            import traceback
+            traceback.print_exc()
             logger.error(f"查詢支出記錄時發生錯誤: {e}")
             return TextSendMessage(text="❌ 查詢失敗，請稍後再試。")
     
@@ -265,14 +291,34 @@ class ExpenseBot:
                 avg = current_stats['total_amount'] / current_stats['total_count']
                 response += f"📈 平均: {avg:.1f} 元/筆\n"
             
-            # 顯示統計期間
+            # 顯示統計期間 - 添加錯誤處理
             if current_stats['reset_date']:
-                reset_dt = datetime.fromisoformat(current_stats['reset_date'].replace('Z', '+00:00'))
-                response += f"\n📅 統計開始: {reset_dt.strftime('%Y/%m/%d %H:%M')}\n"
+                try:
+                    reset_date_str = current_stats['reset_date']
+                    if isinstance(reset_date_str, str):
+                        if 'Z' in reset_date_str:
+                            reset_date_str = reset_date_str.replace('Z', '+00:00')
+                        reset_dt = datetime.fromisoformat(reset_date_str)
+                    else:
+                        reset_dt = reset_date_str
+                    response += f"\n📅 統計開始: {reset_dt.strftime('%Y/%m/%d %H:%M')}\n"
+                except Exception as e:
+                    print(f"❌ 重置日期格式化錯誤: {e}, reset_date: {current_stats['reset_date']}")
+                    response += f"\n📅 統計開始: 日期格式錯誤\n"
             
             if current_stats['last_record']:
-                last_dt = datetime.fromisoformat(current_stats['last_record'].replace('Z', '+00:00'))
-                response += f"📅 最近記錄: {last_dt.strftime('%Y/%m/%d %H:%M')}\n"
+                try:
+                    last_record_str = current_stats['last_record']
+                    if isinstance(last_record_str, str):
+                        if 'Z' in last_record_str:
+                            last_record_str = last_record_str.replace('Z', '+00:00')
+                        last_dt = datetime.fromisoformat(last_record_str)
+                    else:
+                        last_dt = last_record_str
+                    response += f"📅 最近記錄: {last_dt.strftime('%Y/%m/%d %H:%M')}\n"
+                except Exception as e:
+                    print(f"❌ 最近記錄日期格式化錯誤: {e}, last_record: {current_stats['last_record']}")
+                    response += f"📅 最近記錄: 日期格式錯誤\n"
             
             response += f"\n💡 提示: 使用「重新統計」可重置當前統計金額"
             
@@ -298,20 +344,43 @@ class ExpenseBot:
                 avg = stats['total_amount'] / stats['total_count']
                 response += f"📈 歷史平均: {avg:.1f} 元/筆\n"
             
-            # 顯示記錄期間
+            # 顯示記錄期間 - 添加錯誤處理
             if stats['first_record'] and stats['last_record']:
-                first_dt = datetime.fromisoformat(stats['first_record'].replace('Z', '+00:00'))
-                last_dt = datetime.fromisoformat(stats['last_record'].replace('Z', '+00:00'))
-                response += f"\n📅 記錄期間:\n"
-                response += f"   開始: {first_dt.strftime('%Y/%m/%d')}\n"
-                response += f"   最近: {last_dt.strftime('%Y/%m/%d')}\n"
+                try:
+                    first_record_str = stats['first_record']
+                    last_record_str = stats['last_record']
+                    
+                    if isinstance(first_record_str, str):
+                        if 'Z' in first_record_str:
+                            first_record_str = first_record_str.replace('Z', '+00:00')
+                        first_dt = datetime.fromisoformat(first_record_str)
+                    else:
+                        first_dt = first_record_str
+                    
+                    if isinstance(last_record_str, str):
+                        if 'Z' in last_record_str:
+                            last_record_str = last_record_str.replace('Z', '+00:00')
+                        last_dt = datetime.fromisoformat(last_record_str)
+                    else:
+                        last_dt = last_record_str
+                    
+                    response += f"\n📅 記錄期間:\n"
+                    response += f"   開始: {first_dt.strftime('%Y/%m/%d')}\n"
+                    response += f"   最近: {last_dt.strftime('%Y/%m/%d')}\n"
+                except Exception as e:
+                    print(f"❌ 記錄期間日期格式化錯誤: {e}")
+                    response += f"\n📅 記錄期間: 日期格式錯誤\n"
             
             # 顯示最近幾個月的統計
             if stats['monthly_stats']:
                 response += f"\n📊 最近月份統計:\n"
                 for month_str, amount, count in stats['monthly_stats'][:5]:
-                    year, month = month_str.split('-')
-                    response += f"   {year}年{int(month)}月: {amount:.0f} 元 ({count} 筆)\n"
+                    try:
+                        year, month = month_str.split('-')
+                        response += f"   {year}年{int(month)}月: {amount:.0f} 元 ({count} 筆)\n"
+                    except Exception as e:
+                        print(f"❌ 月份統計格式化錯誤: {e}, month_str: {month_str}")
+                        response += f"   日期格式錯誤: {amount:.0f} 元 ({count} 筆)\n"
             
             response += f"\n💡 「當前統計」顯示重置後的累積金額"
             
