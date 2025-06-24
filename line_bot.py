@@ -542,5 +542,274 @@ def index():
     """首頁"""
     return "LINE 記帳機器人運行中！"
 
+@app.route("/admin")
+def admin_dashboard():
+    """管理員儀表板"""
+    try:
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        # 取得所有用戶的記錄統計
+        if db.use_postgresql:
+            cursor.execute('''
+                SELECT user_id, COUNT(*) as count, SUM(amount) as total, MAX(timestamp) as last_record
+                FROM expenses
+                GROUP BY user_id
+                ORDER BY last_record DESC
+            ''')
+        else:
+            cursor.execute('''
+                SELECT user_id, COUNT(*) as count, SUM(amount) as total, MAX(timestamp) as last_record
+                FROM expenses
+                GROUP BY user_id
+                ORDER BY last_record DESC
+            ''')
+        
+        users = cursor.fetchall()
+        conn.close()
+        
+        # 轉換 PostgreSQL 結果
+        if db.use_postgresql:
+            users = [tuple(user.values()) for user in users]
+        
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>LINE 記帳機器人 - 資料庫管理</title>
+            <meta charset="UTF-8">
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                table {{ border-collapse: collapse; width: 100%; }}
+                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+                th {{ background-color: #f2f2f2; }}
+                .header {{ background-color: #4CAF50; color: white; padding: 20px; text-align: center; }}
+                .stats {{ background-color: #f9f9f9; padding: 15px; margin: 20px 0; }}
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>📊 LINE 記帳機器人 - 資料庫管理</h1>
+                <p>資料庫類型: {'PostgreSQL' if db.use_postgresql else 'SQLite'}</p>
+            </div>
+            
+            <div class="stats">
+                <h2>👥 用戶統計總覽</h2>
+                <p>總用戶數: {len(users)}</p>
+            </div>
+            
+            <h2>📋 用戶記錄概覽</h2>
+            <table>
+                <tr>
+                    <th>用戶ID</th>
+                    <th>記錄筆數</th>
+                    <th>總金額</th>
+                    <th>最後記錄時間</th>
+                    <th>操作</th>
+                </tr>
+        """
+        
+        for user_id, count, total, last_record in users:
+            html += f"""
+                <tr>
+                    <td>{user_id[:20]}...</td>
+                    <td>{count}</td>
+                    <td>${total:.0f}</td>
+                    <td>{last_record}</td>
+                    <td><a href="/admin/user/{user_id}">查看詳細</a></td>
+                </tr>
+            """
+        
+        html += """
+            </table>
+            
+            <div style="margin-top: 30px;">
+                <h3>🔧 管理工具</h3>
+                <p><a href="/admin/expenses">📋 查看所有記錄</a></p>
+                <p><a href="/admin/stats">📊 詳細統計</a></p>
+            </div>
+        </body>
+        </html>
+        """
+        
+        return html
+        
+    except Exception as e:
+        return f"錯誤: {str(e)}"
+
+@app.route("/admin/user/<user_id>")
+def admin_user_details(user_id):
+    """查看特定用戶的詳細記錄"""
+    try:
+        expenses = db.get_user_expenses(user_id, limit=50)
+        
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>用戶記錄 - {user_id}</title>
+            <meta charset="UTF-8">
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                table {{ border-collapse: collapse; width: 100%; }}
+                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+                th {{ background-color: #f2f2f2; }}
+                .header {{ background-color: #2196F3; color: white; padding: 20px; text-align: center; }}
+                .back {{ margin: 20px 0; }}
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>👤 用戶記錄詳細</h1>
+                <p>用戶ID: {user_id}</p>
+            </div>
+            
+            <div class="back">
+                <a href="/admin">← 返回管理首頁</a>
+            </div>
+            
+            <h2>📋 最近 50 筆記錄</h2>
+            <table>
+                <tr>
+                    <th>記錄ID</th>
+                    <th>金額</th>
+                    <th>地點</th>
+                    <th>描述</th>
+                    <th>分類</th>
+                    <th>時間</th>
+                </tr>
+        """
+        
+        total = 0
+        for expense in expenses:
+            expense_id, amount, location, description, category, timestamp = expense
+            total += amount
+            html += f"""
+                <tr>
+                    <td>#{expense_id}</td>
+                    <td>${amount:.0f}</td>
+                    <td>{location or '-'}</td>
+                    <td>{description}</td>
+                    <td>{category or '-'}</td>
+                    <td>{timestamp}</td>
+                </tr>
+            """
+        
+        html += f"""
+            </table>
+            
+            <div style="margin-top: 20px; background-color: #f9f9f9; padding: 15px;">
+                <h3>📊 統計摘要</h3>
+                <p>顯示記錄數: {len(expenses)}</p>
+                <p>顯示總金額: ${total:.0f}</p>
+            </div>
+        </body>
+        </html>
+        """
+        
+        return html
+        
+    except Exception as e:
+        return f"錯誤: {str(e)}"
+
+@app.route("/admin/expenses")
+def admin_all_expenses():
+    """查看所有記錄"""
+    try:
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        if db.use_postgresql:
+            cursor.execute('''
+                SELECT id, user_id, amount, location, description, category, timestamp
+                FROM expenses
+                ORDER BY timestamp DESC
+                LIMIT 100
+            ''')
+        else:
+            cursor.execute('''
+                SELECT id, user_id, amount, location, description, category, timestamp
+                FROM expenses
+                ORDER BY timestamp DESC
+                LIMIT 100
+            ''')
+        
+        expenses = cursor.fetchall()
+        conn.close()
+        
+        # 轉換 PostgreSQL 結果
+        if db.use_postgresql:
+            expenses = [tuple(expense.values()) for expense in expenses]
+        
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>所有記錄 - LINE 記帳機器人</title>
+            <meta charset="UTF-8">
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                table {{ border-collapse: collapse; width: 100%; font-size: 12px; }}
+                th, td {{ border: 1px solid #ddd; padding: 6px; text-align: left; }}
+                th {{ background-color: #f2f2f2; }}
+                .header {{ background-color: #FF9800; color: white; padding: 20px; text-align: center; }}
+                .back {{ margin: 20px 0; }}
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>📋 所有記錄</h1>
+                <p>最近 100 筆記錄</p>
+            </div>
+            
+            <div class="back">
+                <a href="/admin">← 返回管理首頁</a>
+            </div>
+            
+            <table>
+                <tr>
+                    <th>ID</th>
+                    <th>用戶ID</th>
+                    <th>金額</th>
+                    <th>地點</th>
+                    <th>描述</th>
+                    <th>分類</th>
+                    <th>時間</th>
+                </tr>
+        """
+        
+        total = 0
+        for expense in expenses:
+            expense_id, user_id, amount, location, description, category, timestamp = expense
+            total += amount
+            html += f"""
+                <tr>
+                    <td>#{expense_id}</td>
+                    <td>{user_id[:15]}...</td>
+                    <td>${amount:.0f}</td>
+                    <td>{location or '-'}</td>
+                    <td>{description}</td>
+                    <td>{category or '-'}</td>
+                    <td>{timestamp}</td>
+                </tr>
+            """
+        
+        html += f"""
+            </table>
+            
+            <div style="margin-top: 20px; background-color: #f9f9f9; padding: 15px;">
+                <h3>📊 統計摘要</h3>
+                <p>顯示記錄數: {len(expenses)}</p>
+                <p>顯示總金額: ${total:.0f}</p>
+            </div>
+        </body>
+        </html>
+        """
+        
+        return html
+        
+    except Exception as e:
+        return f"錯誤: {str(e)}"
+
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=PORT, debug=True) 
