@@ -12,7 +12,7 @@ from linebot.models import (
 from datetime import datetime
 import logging
 
-from config import LINE_CHANNEL_ACCESS_TOKEN, LINE_CHANNEL_SECRET, PORT
+from config import LINE_CHANNEL_ACCESS_TOKEN, LINE_CHANNEL_SECRET, PORT, DATABASE_URL
 from database import ExpenseDatabase
 from message_parser import MessageParser
 
@@ -20,12 +20,29 @@ from message_parser import MessageParser
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 🔍 除錯訊息 - 檢查 TOKEN
+# 🔍 除錯訊息 - 檢查設定
 print(f"🔍 DEBUG: TOKEN 長度: {len(LINE_CHANNEL_ACCESS_TOKEN)}")
 print(f"🔍 DEBUG: TOKEN 開頭: {LINE_CHANNEL_ACCESS_TOKEN[:30]}...")
 print(f"🔍 DEBUG: TOKEN 結尾: ...{LINE_CHANNEL_ACCESS_TOKEN[-10:]}")
 print(f"🔍 DEBUG: SECRET 長度: {len(LINE_CHANNEL_SECRET)}")
 print(f"🔍 DEBUG: SECRET: {LINE_CHANNEL_SECRET}")
+print(f"🔍 DEBUG: DATABASE_URL: {'✅ 已設定 PostgreSQL' if DATABASE_URL else '⚠️ 使用 SQLite'}")
+
+# 詳細的資料庫設定檢查
+if DATABASE_URL:
+    print(f"🔍 DEBUG: DATABASE_URL 內容: {DATABASE_URL[:50]}...")
+    print(f"🔍 DEBUG: DATABASE_URL 長度: {len(DATABASE_URL)}")
+else:
+    print(f"🔍 DEBUG: DATABASE_URL 為空")
+
+# 檢查 PostgreSQL 支援
+try:
+    import psycopg2
+    print(f"🔍 DEBUG: psycopg2 可用: ✅")
+except ImportError:
+    print(f"🔍 DEBUG: psycopg2 不可用: ❌")
+
+print(f"🔍 DEBUG: PORT: {PORT}")
 
 # 初始化 Flask 應用程式
 app = Flask(__name__)
@@ -37,6 +54,8 @@ handler = WebhookHandler(LINE_CHANNEL_SECRET)
 # 初始化資料庫和訊息解析器
 db = ExpenseDatabase()
 parser = MessageParser()
+
+print(f"🔍 DEBUG: 資料庫類型: {'PostgreSQL' if db.use_postgresql else 'SQLite'}")
 
 class ExpenseBot:
     def __init__(self):
