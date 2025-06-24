@@ -25,118 +25,177 @@ class ExpenseDatabase:
         if self.use_postgresql:
             print(f"🔧 DATABASE: PostgreSQL 連線字串長度: {len(DATABASE_URL)}")
         
+        # 測試連線
+        try:
+            print(f"🔧 DATABASE: 測試資料庫連線...")
+            conn = self.get_connection()
+            print(f"🔧 DATABASE: 連線測試成功 ✅")
+            conn.close()
+        except Exception as e:
+            print(f"🔧 DATABASE: 連線測試失敗 ❌ - {e}")
+            raise e
+        
         self.init_database()
         print(f"🔧 DATABASE: 資料庫初始化完成")
     
     def get_connection(self):
         """取得資料庫連線"""
-        if self.use_postgresql:
-            return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
-        else:
-            return sqlite3.connect(DATABASE_NAME)
+        try:
+            if self.use_postgresql:
+                return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+            else:
+                return sqlite3.connect(DATABASE_NAME)
+        except Exception as e:
+            print(f"❌ DATABASE: 連線失敗 - {e}")
+            raise e
     
     def init_database(self):
         """初始化資料庫，建立必要的資料表"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        if self.use_postgresql:
-            # PostgreSQL 語法
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS expenses (
-                    id SERIAL PRIMARY KEY,
-                    user_id TEXT NOT NULL,
-                    amount REAL NOT NULL,
-                    location TEXT,
-                    description TEXT,
-                    category TEXT,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
             
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS user_settings (
-                    user_id TEXT PRIMARY KEY,
-                    stats_reset_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-        else:
-            # SQLite 語法
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS expenses (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id TEXT NOT NULL,
-                    amount REAL NOT NULL,
-                    location TEXT,
-                    description TEXT,
-                    category TEXT,
-                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
+            print(f"🔧 DATABASE: 建立資料表...")
             
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS user_settings (
-                    user_id TEXT PRIMARY KEY,
-                    stats_reset_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-        
-        conn.commit()
-        conn.close()
+            if self.use_postgresql:
+                # PostgreSQL 語法
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS expenses (
+                        id SERIAL PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        amount REAL NOT NULL,
+                        location TEXT,
+                        description TEXT,
+                        category TEXT,
+                        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS user_settings (
+                        user_id TEXT PRIMARY KEY,
+                        stats_reset_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                print(f"🔧 DATABASE: PostgreSQL 資料表建立完成")
+            else:
+                # SQLite 語法
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS expenses (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id TEXT NOT NULL,
+                        amount REAL NOT NULL,
+                        location TEXT,
+                        description TEXT,
+                        category TEXT,
+                        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS user_settings (
+                        user_id TEXT PRIMARY KEY,
+                        stats_reset_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                print(f"🔧 DATABASE: SQLite 資料表建立完成")
+            
+            conn.commit()
+            conn.close()
+            
+        except Exception as e:
+            print(f"❌ DATABASE: 初始化失敗 - {e}")
+            raise e
     
     def add_expense(self, user_id, amount, location=None, description=None, category=None):
         """新增支出記錄"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            INSERT INTO expenses (user_id, amount, location, description, category)
-            VALUES (%s, %s, %s, %s, %s)
-        ''' if self.use_postgresql else '''
-            INSERT INTO expenses (user_id, amount, location, description, category)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (user_id, amount, location, description, category))
-        
-        conn.commit()
-        
-        if self.use_postgresql:
-            cursor.execute("SELECT LASTVAL()")
-            expense_id = cursor.fetchone()[0]
-        else:
-            expense_id = cursor.lastrowid
+        conn = None
+        try:
+            print(f"🔍 DEBUG: 開始新增記錄 - user_id: {user_id}, amount: {amount}, description: {description}")
             
-        conn.close()
-        return expense_id
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            if self.use_postgresql:
+                # PostgreSQL 使用 RETURNING 獲取 ID
+                cursor.execute('''
+                    INSERT INTO expenses (user_id, amount, location, description, category)
+                    VALUES (%s, %s, %s, %s, %s) RETURNING id
+                ''', (user_id, amount, location, description, category))
+                
+                expense_id = cursor.fetchone()[0]
+                print(f"🔍 DEBUG: PostgreSQL 返回 ID: {expense_id}")
+            else:
+                # SQLite 使用 lastrowid
+                cursor.execute('''
+                    INSERT INTO expenses (user_id, amount, location, description, category)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (user_id, amount, location, description, category))
+                
+                expense_id = cursor.lastrowid
+                print(f"🔍 DEBUG: SQLite 返回 ID: {expense_id}")
+            
+            conn.commit()
+            conn.close()
+            
+            print(f"✅ DEBUG: 成功新增記錄，ID: {expense_id}")
+            return expense_id
+            
+        except Exception as e:
+            print(f"❌ DEBUG: 新增記錄失敗 - 類型: {type(e).__name__}, 訊息: {str(e)}")
+            if conn:
+                try:
+                    conn.close()
+                except:
+                    pass
+            raise e
     
     def get_user_expenses(self, user_id, limit=10):
         """取得用戶的支出記錄"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT id, amount, location, description, category, timestamp
-            FROM expenses
-            WHERE user_id = %s
-            ORDER BY timestamp DESC
-            LIMIT %s
-        ''' if self.use_postgresql else '''
-            SELECT id, amount, location, description, category, timestamp
-            FROM expenses
-            WHERE user_id = ?
-            ORDER BY timestamp DESC
-            LIMIT ?
-        ''', (user_id, limit))
-        
-        expenses = cursor.fetchall()
-        conn.close()
-        
-        # 轉換 PostgreSQL 結果為 list
-        if self.use_postgresql:
-            expenses = [tuple(expense.values()) for expense in expenses]
-        
-        return expenses
+        conn = None
+        try:
+            print(f"🔍 DEBUG: 查詢用戶記錄 - user_id: {user_id}, limit: {limit}")
+            
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            if self.use_postgresql:
+                cursor.execute('''
+                    SELECT id, amount, location, description, category, timestamp
+                    FROM expenses
+                    WHERE user_id = %s
+                    ORDER BY timestamp DESC
+                    LIMIT %s
+                ''', (user_id, limit))
+            else:
+                cursor.execute('''
+                    SELECT id, amount, location, description, category, timestamp
+                    FROM expenses
+                    WHERE user_id = ?
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                ''', (user_id, limit))
+            
+            expenses = cursor.fetchall()
+            conn.close()
+            
+            # 轉換 PostgreSQL 結果為 list
+            if self.use_postgresql:
+                expenses = [tuple(expense.values()) for expense in expenses]
+            
+            print(f"🔍 DEBUG: 查詢到 {len(expenses)} 筆記錄")
+            return expenses
+            
+        except Exception as e:
+            print(f"❌ DEBUG: 查詢用戶記錄失敗 - 類型: {type(e).__name__}, 訊息: {str(e)}")
+            if conn:
+                try:
+                    conn.close()
+                except:
+                    pass
+            raise e
     
     def get_monthly_summary(self, user_id, year, month):
         """取得月度支出摘要"""
@@ -191,36 +250,55 @@ class ExpenseDatabase:
     
     def get_monthly_total(self, user_id, year, month):
         """取得指定月份的總支出金額"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        start_date = f"{year}-{month:02d}-01"
-        if month == 12:
-            end_date = f"{year+1}-01-01"
-        else:
-            end_date = f"{year}-{month+1:02d}-01"
-        
-        cursor.execute('''
-            SELECT SUM(amount), COUNT(*)
-            FROM expenses
-            WHERE user_id = %s AND timestamp >= %s AND timestamp < %s
-        ''' if self.use_postgresql else '''
-            SELECT SUM(amount), COUNT(*)
-            FROM expenses
-            WHERE user_id = ? AND timestamp >= ? AND timestamp < ?
-        ''', (user_id, start_date, end_date))
-        
-        result = cursor.fetchone()
-        conn.close()
-        
-        if self.use_postgresql:
-            total_amount = result[0] or 0
-            total_count = result[1] or 0
-        else:
-            total_amount = result[0] or 0
-            total_count = result[1] or 0
-        
-        return total_amount, total_count
+        conn = None
+        try:
+            print(f"🔍 DEBUG: 查詢月度總計 - user_id: {user_id}, {year}年{month}月")
+            
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            start_date = f"{year}-{month:02d}-01"
+            if month == 12:
+                end_date = f"{year+1}-01-01"
+            else:
+                end_date = f"{year}-{month+1:02d}-01"
+            
+            print(f"🔍 DEBUG: 查詢日期範圍 - {start_date} 到 {end_date}")
+            
+            if self.use_postgresql:
+                cursor.execute('''
+                    SELECT SUM(amount), COUNT(*)
+                    FROM expenses
+                    WHERE user_id = %s AND timestamp >= %s AND timestamp < %s
+                ''', (user_id, start_date, end_date))
+            else:
+                cursor.execute('''
+                    SELECT SUM(amount), COUNT(*)
+                    FROM expenses
+                    WHERE user_id = ? AND timestamp >= ? AND timestamp < ?
+                ''', (user_id, start_date, end_date))
+            
+            result = cursor.fetchone()
+            conn.close()
+            
+            if self.use_postgresql:
+                total_amount = result[0] if result[0] is not None else 0
+                total_count = result[1] if result[1] is not None else 0
+            else:
+                total_amount = result[0] if result[0] is not None else 0
+                total_count = result[1] if result[1] is not None else 0
+            
+            print(f"🔍 DEBUG: 查詢結果 - 金額: {total_amount}, 筆數: {total_count}")
+            return total_amount, total_count
+            
+        except Exception as e:
+            print(f"❌ DEBUG: 查詢月度總計失敗 - 類型: {type(e).__name__}, 訊息: {str(e)}")
+            if conn:
+                try:
+                    conn.close()
+                except:
+                    pass
+            raise e
     
     def get_all_time_stats(self, user_id):
         """取得用戶的總統計資料"""

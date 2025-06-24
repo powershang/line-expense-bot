@@ -467,16 +467,35 @@ def handle_message(event):
     logger.info(f"收到用戶 {user_id} 的訊息: {message_text}")
     
     try:
+        # 檢查是否為重複請求
+        if hasattr(event, 'webhook_event_id'):
+            print(f"🔍 DEBUG: Webhook Event ID: {event.webhook_event_id}")
+        
         # 使用機器人處理訊息
         reply_message = bot.handle_message(user_id, message_text)
         
-        # 回覆訊息
-        line_bot_api.reply_message(event.reply_token, reply_message)
+        # 回覆訊息 - 加入更好的錯誤處理
+        try:
+            line_bot_api.reply_message(event.reply_token, reply_message)
+            print(f"✅ DEBUG: 成功回覆訊息")
+        except Exception as reply_error:
+            print(f"⚠️ DEBUG: Reply 失敗: {reply_error}")
+            # 如果是 reply token 問題，不要拋出錯誤（避免 500 錯誤）
+            if "Invalid reply token" in str(reply_error):
+                print("💡 DEBUG: Reply token 已過期或重複使用，這是正常的重送請求")
+            else:
+                raise reply_error
         
     except Exception as e:
         logger.error(f"處理訊息時發生錯誤: {e}")
-        error_message = TextSendMessage(text="❌ 系統發生錯誤，請稍後再試。")
-        line_bot_api.reply_message(event.reply_token, error_message)
+        print(f"❌ DEBUG: 詳細錯誤 - 類型: {type(e)}, 訊息: {str(e)}")
+        
+        # 只有在 reply token 有效時才嘗試回覆錯誤訊息
+        try:
+            error_message = TextSendMessage(text="❌ 系統發生錯誤，請稍後再試。")
+            line_bot_api.reply_message(event.reply_token, error_message)
+        except:
+            print("💡 DEBUG: 無法發送錯誤訊息，可能是 reply token 問題")
 
 @app.route("/")
 def index():
