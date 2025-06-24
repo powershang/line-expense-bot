@@ -149,7 +149,9 @@ class ExpenseBot:
         """顯示本月支出摘要（簡化版）"""
         try:
             now = datetime.now()
+            print(f"🔍 DEBUG: 正在查詢用戶 {user_id} 的 {now.year}年{now.month}月 資料")
             total_amount, total_count = db.get_monthly_total(user_id, now.year, now.month)
+            print(f"🔍 DEBUG: 查詢結果 - 金額:{total_amount}, 筆數:{total_count}")
             
             if total_count == 0:
                 return TextSendMessage(text=f"📊 {now.year}年{now.month}月目前沒有支出記錄。")
@@ -165,6 +167,7 @@ class ExpenseBot:
             return TextSendMessage(text=response)
             
         except Exception as e:
+            print(f"🔍 DEBUG: 例外詳細資訊 - 類型:{type(e)}, 值:{e}, 字串:{str(e)}")
             logger.error(f"查詢月度摘要時發生錯誤: {e}")
             return TextSendMessage(text="❌ 查詢失敗，請稍後再試。")
     
