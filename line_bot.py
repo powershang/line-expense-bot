@@ -75,28 +75,31 @@ class ExpenseBot:
         
         # 檢查是否為 @ai 指令
         if message_text.strip().lower().startswith('@ai'):
-            # 解析訊息
-            parsed_data = parser.parse_message(message_text)
+            # 優先檢查特定指令格式，避免被記帳解析誤判
             
-            # 檢查是否為有效的記帳
-            if parser.is_valid_expense(parsed_data):
-                return self.add_expense(user_id, parsed_data)
-            
-            # 檢查是否為有效的刪除指令
-            elif parser.is_valid_delete(parsed_data):
-                return self.delete_expense(user_id, parsed_data)
-            
-            # 檢查是否為 @ai 查詢指令（新增）
-            elif self.is_ai_query_command(message_text):
+            # 檢查是否為 @ai 查詢指令（優先檢查）
+            if self.is_ai_query_command(message_text):
                 return self.handle_ai_query_command(user_id, message_text, is_group)
             
             # 檢查是否為 @ai 內建指令
             elif self.is_ai_help_command(message_text):
                 return self.handle_ai_help_command(user_id, message_text, is_group)
             
-            # 無效的 @ai 格式
+            # 然後才解析訊息進行記帳和刪除檢查
             else:
-                return self.suggest_ai_format(message_text, is_group)
+                parsed_data = parser.parse_message(message_text)
+                
+                # 檢查是否為有效的刪除指令
+                if parser.is_valid_delete(parsed_data):
+                    return self.delete_expense(user_id, parsed_data)
+                
+                # 檢查是否為有效的記帳
+                elif parser.is_valid_expense(parsed_data):
+                    return self.add_expense(user_id, parsed_data)
+                
+                # 無效的 @ai 格式
+                else:
+                    return self.suggest_ai_format(message_text, is_group)
         
         # 私聊模式：檢查是否為數字查詢指令
         elif not is_group and self.is_number_query_command(message_text):
