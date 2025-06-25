@@ -24,13 +24,15 @@ class MessageParser:
     
     def parse_message(self, message):
         """
-        解析訊息，新格式：@ai 原因 錢
+        解析訊息，支援格式：
+        1. @ai 原因 錢 (記帳)
+        2. @ai /del #數字 (刪除記錄)
         
         Args:
             message (str): 用戶輸入的訊息
             
         Returns:
-            dict: 解析結果，包含 amount, description, reason
+            dict: 解析結果，包含 amount, description, reason, delete_id
         """
         result = {
             'amount': None,
@@ -38,7 +40,9 @@ class MessageParser:
             'reason': '',
             'location': None,  # 不再使用
             'category': None,  # 不再使用
-            'is_valid_format': False
+            'is_valid_format': False,
+            'delete_id': None,  # 新增：要刪除的記錄 ID
+            'action_type': None  # 新增：動作類型 ('expense' 或 'delete')
         }
         
         # 檢查是否以 @ai 開頭
@@ -53,6 +57,35 @@ class MessageParser:
         
         # 標記為有效格式
         result['is_valid_format'] = True
+        
+        # 檢查是否為刪除指令
+        if content.lower().startswith('/del'):
+            return self._parse_delete_command(content, result)
+        
+        # 否則解析為記帳指令
+        return self._parse_expense_command(content, result)
+    
+    def _parse_delete_command(self, content, result):
+        """解析刪除指令：/del #數字"""
+        result['action_type'] = 'delete'
+        
+        # 使用正則表達式匹配 /del #數字 格式
+        delete_pattern = r'/del\s+#(\d+)'
+        match = re.search(delete_pattern, content, re.IGNORECASE)
+        
+        if match:
+            try:
+                delete_id = int(match.group(1))
+                result['delete_id'] = delete_id
+                result['description'] = f'刪除記錄 #{delete_id}'
+            except ValueError:
+                pass
+        
+        return result
+    
+    def _parse_expense_command(self, content, result):
+        """解析記帳指令：原因 金額"""
+        result['action_type'] = 'expense'
         
         # 提取金額
         amount = self._extract_amount(content)
@@ -101,11 +134,34 @@ class MessageParser:
         Returns:
             bool: 是否有效
         """
-        return (parsed_data.get('is_valid_format', False) and 
-                parsed_data.get('amount') is not None and 
-                parsed_data.get('amount') > 0 and
-                parsed_data.get('reason', '').strip() != '')
+        if not parsed_data.get('is_valid_format', False):
+            return False
+            
+        action_type = parsed_data.get('action_type')
+        
+        if action_type == 'expense':
+            return (parsed_data.get('amount') is not None and 
+                    parsed_data.get('amount') > 0 and
+                    parsed_data.get('reason', '').strip() != '')
+        
+        # 刪除指令不算作支出記錄
+        return False
     
+    def is_valid_delete(self, parsed_data):
+        """
+        檢查是否為有效的刪除指令
+        
+        Args:
+            parsed_data (dict): 解析結果
+            
+        Returns:
+            bool: 是否有效的刪除指令
+        """
+        return (parsed_data.get('is_valid_format', False) and
+                parsed_data.get('action_type') == 'delete' and
+                parsed_data.get('delete_id') is not None and
+                parsed_data.get('delete_id') > 0)
+
     def format_expense_summary(self, parsed_data):
         """
         格式化支出摘要
@@ -128,16 +184,24 @@ class MessageParser:
         """取得使用說明"""
         return """💡 記帳格式說明:
 
-📌 **新格式要求**：
-必須以 @ai 開頭，格式為：@ai 原因 金額
+📌 **記帳格式**：
+@ai 原因 金額
 
-📝 **範例**：
+📝 **記帳範例**：
 • @ai 午餐 120
 • @ai 咖啡 50元
 • @ai 停車費 30塊
 • @ai 買飲料 45
 • @ai 電影票 280
 • @ai 油錢 800
+
+🗑️ **刪除記錄格式**：
+@ai /del #記錄編號
+
+📝 **刪除範例**：
+• @ai /del #23
+• @ai /del #156
+• @ai /del #7
 
 💰 **支援的金額格式**：
 • 120元、50塊、30錢
@@ -148,6 +212,9 @@ class MessageParser:
 • 只記錄原因和金額
 • 不再需要地點和分類
 • 更快速的記帳體驗
+• 支援直接刪除記錄
 
 ⚠️ **重要**：
-訊息必須以 @ai 開頭才會被識別為記帳指令！""" 
+• 訊息必須以 @ai 開頭才會被識別！
+• 只能刪除自己的記錄
+• 刪除後無法復原，請小心使用""" 

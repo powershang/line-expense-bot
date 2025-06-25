@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""
+"""1
 本地調試工具
 用於測試記帳功能而不需要 LINE Bot 環境
 """

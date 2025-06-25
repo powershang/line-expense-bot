@@ -46,13 +46,20 @@ class ExpenseBot:
     
     def handle_message(self, user_id, message_text):
         """處理用戶訊息"""
-        # 檢查是否為 @ai 記帳指令
+        # 檢查是否為 @ai 指令
         if message_text.strip().lower().startswith('@ai'):
-            # 嘗試解析為支出記錄
+            # 解析訊息
             parsed_data = parser.parse_message(message_text)
             
+            # 檢查是否為有效的記帳
             if parser.is_valid_expense(parsed_data):
                 return self.add_expense(user_id, parsed_data)
+            
+            # 檢查是否為有效的刪除指令
+            elif parser.is_valid_delete(parsed_data):
+                return self.delete_expense(user_id, parsed_data)
+            
+            # 無效的 @ai 格式
             else:
                 return self.suggest_ai_format(message_text)
         
@@ -345,15 +352,22 @@ class ExpenseBot:
         """顯示主要幫助訊息"""
         help_text = """🤖 LINE 記帳機器人
 
-💡 **新版本 - 簡化記帳**
+💡 **新版本 - 簡化記帳 + 刪除功能**
 
 🚀 記帳方式:
-必須以 @ai 開頭，格式：@ai 原因 金額
+@ai 原因 金額
 
-📝 範例:
+📝 記帳範例:
 • @ai 午餐 120
 • @ai 咖啡 50元
 • @ai 停車費 30
+
+🗑️ 刪除記錄:
+@ai /del #記錄編號
+
+📝 刪除範例:
+• @ai /del #23
+• @ai /del #156
 
 📋 查詢指令:
 • "查詢" - 查看最近記錄  
@@ -366,12 +380,14 @@ class ExpenseBot:
 • "幫助" - 顯示此說明
 
 ⚠️ **重要提醒**：
-只有以 @ai 開頭的訊息才會被識別為記帳指令！
+• 只有以 @ai 開頭的訊息才會被識別！
+• 只能刪除自己的記錄
+• 刪除後無法復原，請小心使用
 
 ✨ **新特色**：
 • 簡化格式，只記錄原因和金額
 • 避免誤判，明確區分記帳和聊天
-• 更快速的記帳體驗"""
+• 支援直接刪除記錄，更方便管理"""
 
         quick_reply = QuickReply(items=[
             QuickReplyButton(action=MessageAction(label="當前統計", text="當前統計")),
@@ -386,13 +402,16 @@ class ExpenseBot:
         suggestion = f"""🤔 我發現您使用了 @ai 但格式不正確：
 "{message_text}"
 
-💡 正確格式：@ai 原因 金額
+💡 正確格式：
 
-📝 範例：
+📝 記帳：@ai 原因 金額
 • @ai 午餐 120
 • @ai 咖啡 50元
 • @ai 停車費 30
-• @ai 買飲料 45元
+
+🗑️ 刪除：@ai /del #記錄編號
+• @ai /del #23
+• @ai /del #156
 
 請再試一次！"""
 
@@ -403,12 +422,14 @@ class ExpenseBot:
         suggestion = """🤖 記帳機器人提醒：
 
 💡 要記帳請使用 @ai 開頭：
-格式：@ai 原因 金額
 
-📝 範例：
+📝 記帳格式：@ai 原因 金額
 • @ai 午餐 120
 • @ai 咖啡 50元
 • @ai 停車費 30
+
+🗑️ 刪除格式：@ai /del #編號
+• @ai /del #23
 
 📋 其他功能：
 • "查詢" - 查看最近記錄
@@ -499,6 +520,82 @@ class ExpenseBot:
     def cancel_reset_stats(self, user_id):
         """取消重新統計"""
         return TextSendMessage(text="✅ 已取消重新統計，您的記錄保持不變。")
+
+    def delete_expense(self, user_id, parsed_data):
+        """刪除支出記錄"""
+        try:
+            delete_id = parsed_data['delete_id']
+            
+            # 先檢查記錄是否存在且屬於該用戶
+            conn = db.get_connection()
+            cursor = conn.cursor()
+            
+            if db.use_postgresql:
+                cursor.execute('SELECT user_id, amount, description, timestamp FROM expenses WHERE id = %s', (delete_id,))
+            else:
+                cursor.execute('SELECT user_id, amount, description, timestamp FROM expenses WHERE id = ?', (delete_id,))
+            
+            record = cursor.fetchone()
+            
+            if not record:
+                conn.close()
+                return TextSendMessage(text=f"❌ 找不到記錄 #{delete_id}，請檢查編號是否正確。")
+            
+            # 檢查記錄是否屬於該用戶
+            record_user_id = record[0] if isinstance(record, (list, tuple)) else record['user_id']
+            record_amount = record[1] if isinstance(record, (list, tuple)) else record['amount']
+            record_description = record[2] if isinstance(record, (list, tuple)) else record['description']
+            record_timestamp = record[3] if isinstance(record, (list, tuple)) else record['timestamp']
+            
+            if record_user_id != user_id:
+                conn.close()
+                return TextSendMessage(text=f"❌ 記錄 #{delete_id} 不屬於您，無法刪除。")
+            
+            # 執行刪除
+            if db.use_postgresql:
+                cursor.execute('DELETE FROM expenses WHERE id = %s', (delete_id,))
+            else:
+                cursor.execute('DELETE FROM expenses WHERE id = ?', (delete_id,))
+            
+            deleted_count = cursor.rowcount
+            conn.commit()
+            conn.close()
+            
+            if deleted_count > 0:
+                # 格式化時間顯示
+                try:
+                    if isinstance(record_timestamp, str):
+                        if 'Z' in record_timestamp:
+                            record_timestamp = record_timestamp.replace('Z', '+00:00')
+                        dt = datetime.fromisoformat(record_timestamp)
+                        time_str = dt.strftime('%m/%d %H:%M')
+                    else:
+                        time_str = record_timestamp.strftime('%m/%d %H:%M') if record_timestamp else '時間未知'
+                except Exception:
+                    time_str = '時間格式錯誤'
+                
+                response = f"✅ 成功刪除記錄 #{delete_id}\n\n"
+                response += f"📝 原因: {record_description}\n"
+                response += f"💰 金額: {record_amount:.0f} 元\n"
+                response += f"🕐 時間: {time_str}\n\n"
+                response += f"⚠️ 此操作無法復原"
+                
+                logger.info(f"用戶刪除記錄: 用戶={user_id}, 記錄ID={delete_id}")
+                
+                # 添加快速回覆選項
+                quick_reply = QuickReply(items=[
+                    QuickReplyButton(action=MessageAction(label="查詢記錄", text="查詢")),
+                    QuickReplyButton(action=MessageAction(label="當前統計", text="當前統計")),
+                    QuickReplyButton(action=MessageAction(label="本月", text="本月"))
+                ])
+                
+                return TextSendMessage(text=response, quick_reply=quick_reply)
+            else:
+                return TextSendMessage(text=f"❌ 刪除失敗，記錄 #{delete_id} 可能已被刪除。")
+                
+        except Exception as e:
+            logger.error(f"刪除記錄時發生錯誤: {e}")
+            return TextSendMessage(text="❌ 刪除失敗，請稍後再試。")
 
 # 初始化機器人
 bot = ExpenseBot()
