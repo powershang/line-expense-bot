@@ -1,40 +1,73 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+訊息解析器
+解析用戶的記帳訊息，提取金額和描述
+
+新格式要求：@ai 原因 錢
+例如：@ai 午餐 120
+"""
+
 import re
-from datetime import datetime
 
 class MessageParser:
     def __init__(self):
-        # 金額匹配模式 (支援不同格式)
+        # 金額相關的正則表達式
         self.amount_patterns = [
-            r'(\d+(?:\.\d+)?)\s*元',  # 100元, 250.5元
-            r'(\d+(?:\.\d+)?)\s*塊',  # 100塊
-            r'NT\$?\s*(\d+(?:\.\d+)?)',  # NT$100, NT100
-            r'\$\s*(\d+(?:\.\d+)?)',  # $100
-            r'(\d+(?:\.\d+)?)\s*dollar',  # 100dollar
-            r'花了?\s*(\d+(?:\.\d+)?)',  # 花了100, 花100
-            r'(\d+(?:\.\d+)?)\s*錢',  # 100錢
-            r'(\d+(?:\.\d+)?)$',  # 純數字在最後
+            r'(\d+(?:\.\d+)?)\s*[元塊錢]',  # 120元, 50塊, 30錢
+            r'NT?\$\s*(\d+(?:\.\d+)?)',      # NT$100, $80
+            r'花了?\s*(\d+(?:\.\d+)?)',      # 花了60, 花60
+            r'(\d+(?:\.\d+)?)$',             # 純數字在最後
+            r'^(\d+(?:\.\d+)?)$',            # 純數字
         ]
     
-    def parse_message(self, text):
-        """解析訊息，提取金額和原因"""
+    def parse_message(self, message):
+        """
+        解析訊息，新格式：@ai 原因 錢
+        
+        Args:
+            message (str): 用戶輸入的訊息
+            
+        Returns:
+            dict: 解析結果，包含 amount, description, reason
+        """
         result = {
             'amount': None,
-            'reason': None,
-            'description': text.strip()
+            'description': '',
+            'reason': '',
+            'location': None,  # 不再使用
+            'category': None,  # 不再使用
+            'is_valid_format': False
         }
         
+        # 檢查是否以 @ai 開頭
+        if not message.strip().lower().startswith('@ai'):
+            return result
+        
+        # 移除 @ai 前綴
+        content = message.strip()[3:].strip()
+        
+        if not content:
+            return result
+        
+        # 標記為有效格式
+        result['is_valid_format'] = True
+        
         # 提取金額
-        amount = self.extract_amount(text)
+        amount = self._extract_amount(content)
+        
         if amount:
             result['amount'] = amount
-            # 移除金額部分，剩下的當作原因
-            reason = self.extract_reason(text, amount)
-            if reason:
-                result['reason'] = reason
+            
+            # 移除金額部分，剩下的作為原因/描述
+            reason = self._extract_reason(content, amount)
+            result['reason'] = reason.strip()
+            result['description'] = reason.strip()
         
         return result
     
-    def extract_amount(self, text):
+    def _extract_amount(self, text):
         """提取金額"""
         for pattern in self.amount_patterns:
             match = re.search(pattern, text)
@@ -43,50 +76,78 @@ class MessageParser:
                     return float(match.group(1))
                 except (ValueError, IndexError):
                     continue
-        
-        # 如果沒有明確的金額模式，尋找純數字
-        numbers = re.findall(r'\d+(?:\.\d+)?', text)
-        if numbers:
-            # 取最後一個數字作為金額（通常格式是 原因 金額）
-            return float(numbers[-1])
-        
         return None
     
-    def extract_reason(self, text, amount):
-        """提取原因（移除金額部分）"""
-        # 移除金額相關的文字
+    def _extract_reason(self, text, amount):
+        """提取原因，移除金額相關文字"""
+        reason = text
+        
+        # 移除所有找到的金額表達
         for pattern in self.amount_patterns:
-            text = re.sub(pattern, '', text)
+            reason = re.sub(pattern, '', reason)
         
-        # 移除常見的連接詞
-        text = re.sub(r'[花了買吃喝在於到去]', '', text)
-        
-        # 清理空白和標點符號
-        reason = re.sub(r'[，,。！？\s]+', ' ', text).strip()
-        
-        # 如果原因為空或太短，使用原始文字
-        if not reason or len(reason) < 2:
-            return text.strip()
+        # 清理多餘的空白
+        reason = ' '.join(reason.split())
         
         return reason
     
     def is_valid_expense(self, parsed_data):
-        """檢查是否為有效的支出記錄"""
-        return parsed_data['amount'] is not None and parsed_data['amount'] > 0
+        """
+        檢查是否為有效的支出記錄
+        
+        Args:
+            parsed_data (dict): 解析結果
+            
+        Returns:
+            bool: 是否有效
+        """
+        return (parsed_data.get('is_valid_format', False) and 
+                parsed_data.get('amount') is not None and 
+                parsed_data.get('amount') > 0 and
+                parsed_data.get('reason', '').strip() != '')
     
     def format_expense_summary(self, parsed_data):
-        """格式化支出摘要"""
+        """
+        格式化支出摘要
+        
+        Args:
+            parsed_data (dict): 解析結果
+            
+        Returns:
+            str: 格式化的摘要
+        """
         if not self.is_valid_expense(parsed_data):
-            return None
+            return "❌ 無效的支出記錄"
         
-        summary = f"💰 金額: {parsed_data['amount']} 元"
+        summary = f"📝 原因: {parsed_data['reason']}\n"
+        summary += f"💰 金額: {parsed_data['amount']:.0f} 元"
         
-        if parsed_data['reason']:
-            summary += f"\n📝 原因: {parsed_data['reason']}"
-        
-        # 自動加上時間
-        now = datetime.now()
-        time_str = now.strftime('%Y/%m/%d %H:%M')
-        summary += f"\n🕐 時間: {time_str}"
-        
-        return summary 
+        return summary
+    
+    def get_help_message(self):
+        """取得使用說明"""
+        return """💡 記帳格式說明:
+
+📌 **新格式要求**：
+必須以 @ai 開頭，格式為：@ai 原因 金額
+
+📝 **範例**：
+• @ai 午餐 120
+• @ai 咖啡 50元
+• @ai 停車費 30塊
+• @ai 買飲料 45
+• @ai 電影票 280
+• @ai 油錢 800
+
+💰 **支援的金額格式**：
+• 120元、50塊、30錢
+• NT$100、$80
+• 純數字：120
+
+✅ **簡化版記帳**：
+• 只記錄原因和金額
+• 不再需要地點和分類
+• 更快速的記帳體驗
+
+⚠️ **重要**：
+訊息必須以 @ai 開頭才會被識別為記帳指令！""" 

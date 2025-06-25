@@ -46,17 +46,23 @@ class ExpenseBot:
     
     def handle_message(self, user_id, message_text):
         """處理用戶訊息"""
-        # 檢查是否為指令
-        if message_text.strip() in self.commands:
+        # 檢查是否為 @ai 記帳指令
+        if message_text.strip().lower().startswith('@ai'):
+            # 嘗試解析為支出記錄
+            parsed_data = parser.parse_message(message_text)
+            
+            if parser.is_valid_expense(parsed_data):
+                return self.add_expense(user_id, parsed_data)
+            else:
+                return self.suggest_ai_format(message_text)
+        
+        # 檢查是否為其他指令
+        elif message_text.strip() in self.commands:
             return self.commands[message_text.strip()](user_id)
         
-        # 嘗試解析為支出記錄
-        parsed_data = parser.parse_message(message_text)
-        
-        if parser.is_valid_expense(parsed_data):
-            return self.add_expense(user_id, parsed_data)
+        # 如果不是 @ai 開頭也不是指令，提示使用 @ai 格式
         else:
-            return self.suggest_format(message_text)
+            return self.suggest_ai_usage()
     
     def add_expense(self, user_id, parsed_data):
         """新增支出記錄"""
@@ -332,83 +338,94 @@ class ExpenseBot:
 
     def show_expense_help(self, user_id):
         """顯示記帳格式說明"""
-        help_text = """💡 記帳格式說明:
-
-簡單的格式：原因 + 價錢
-
-📝 範例:
-• "午餐 120"
-• "咖啡 50元"
-• "停車費 30塊"
-• "買飲料 45"
-• "電影票 280元"
-
-💡 支援的金額格式:
-• 120元、50塊、30錢
-• NT$100、$80
-• 花了60、60 (純數字)
-
-🕐 系統會自動記錄時間
-📋 查詢時顯示：原因 + 價錢 + 日期時間
-
-📊 統計功能:
-• "本月" - 本月支出摘要
-• "總金額" - 每月總金額統計
-• "統計" - 完整統計報告"""
-
+        help_text = parser.get_help_message()
         return TextSendMessage(text=help_text)
     
     def show_help(self, user_id):
         """顯示主要幫助訊息"""
         help_text = """🤖 LINE 記帳機器人
 
-簡單記帳，輕鬆管理！
+💡 **新版本 - 簡化記帳**
 
-🚀 開始使用:
-直接輸入「原因 + 價錢」，例如:
-"午餐 120元"
+🚀 記帳方式:
+必須以 @ai 開頭，格式：@ai 原因 金額
 
-📋 功能指令:
-• "記帳" - 記帳格式說明
+📝 範例:
+• @ai 午餐 120
+• @ai 咖啡 50元
+• @ai 停車費 30
+
+📋 查詢指令:
 • "查詢" - 查看最近記錄  
 • "本月" - 本月支出摘要
 • "總金額" - 每月總金額統計
 • "當前統計" - 當前累積統計金額 ⭐
 • "統計" - 歷史總統計報告
 • "重新統計" - 🔄 重置當前統計金額
+• "記帳" - 查看記帳格式說明
 • "幫助" - 顯示此說明
 
-💡 統計說明:
-• 當前統計：從重置日期開始累積
-• 歷史統計：包含所有時間記錄
-• 重新統計：只重置當前金額，保留歷史"""
+⚠️ **重要提醒**：
+只有以 @ai 開頭的訊息才會被識別為記帳指令！
+
+✨ **新特色**：
+• 簡化格式，只記錄原因和金額
+• 避免誤判，明確區分記帳和聊天
+• 更快速的記帳體驗"""
 
         quick_reply = QuickReply(items=[
             QuickReplyButton(action=MessageAction(label="當前統計", text="當前統計")),
             QuickReplyButton(action=MessageAction(label="查詢記錄", text="查詢")),
-            QuickReplyButton(action=MessageAction(label="總金額", text="總金額"))
+            QuickReplyButton(action=MessageAction(label="記帳說明", text="記帳"))
         ])
 
         return TextSendMessage(text=help_text, quick_reply=quick_reply)
     
-    def suggest_format(self, message_text):
-        """建議正確的記帳格式"""
-        suggestion = f"""🤔 我無法從這個訊息中識別出金額:
+    def suggest_ai_format(self, message_text):
+        """建議正確的 @ai 格式"""
+        suggestion = f"""🤔 我發現您使用了 @ai 但格式不正確：
 "{message_text}"
 
-💡 請試試這些格式:
-• "在[地點][消費內容][金額]元"
-• "花了[金額]元買[物品]"
-• "[地點][金額]塊"
+💡 正確格式：@ai 原因 金額
 
-📝 範例:
-• "在7-11買飲料50元"
-• "午餐花了120元"
-• "停車費30塊"
+📝 範例：
+• @ai 午餐 120
+• @ai 咖啡 50元
+• @ai 停車費 30
+• @ai 買飲料 45元
 
-或輸入 "記帳" 查看詳細說明。"""
+請再試一次！"""
 
         return TextSendMessage(text=suggestion)
+    
+    def suggest_ai_usage(self):
+        """建議使用 @ai 格式記帳"""
+        suggestion = """🤖 記帳機器人提醒：
+
+💡 要記帳請使用 @ai 開頭：
+格式：@ai 原因 金額
+
+📝 範例：
+• @ai 午餐 120
+• @ai 咖啡 50元
+• @ai 停車費 30
+
+📋 其他功能：
+• "查詢" - 查看最近記錄
+• "當前統計" - 查看統計金額
+• "幫助" - 查看說明"""
+
+        quick_reply = QuickReply(items=[
+            QuickReplyButton(action=MessageAction(label="查詢記錄", text="查詢")),
+            QuickReplyButton(action=MessageAction(label="當前統計", text="當前統計")),
+            QuickReplyButton(action=MessageAction(label="幫助", text="幫助"))
+        ])
+
+        return TextSendMessage(text=suggestion, quick_reply=quick_reply)
+
+    def suggest_format(self, message_text):
+        """建議正確的記帳格式（舊方法，重導向到新格式）"""
+        return self.suggest_ai_usage()
 
     def confirm_reset_current_stats(self, user_id):
         """確認是否要重新統計當前金額"""
