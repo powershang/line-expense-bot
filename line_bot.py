@@ -41,11 +41,37 @@ class ExpenseBot:
             '確認重新統計': self.reset_current_stats,
             '取消重新統計': self.cancel_reset_stats,
             '幫助': self.show_help,
-            '說明': self.show_help
+            '說明': self.show_help,
+            'help': self.show_help,
+            '?': self.show_help,
+            '？': self.show_help,
+            '指令': self.show_commands_menu,
+            '功能': self.show_commands_menu,
+            '選單': self.show_commands_menu,
+            '菜單': self.show_commands_menu,
+            'menu': self.show_commands_menu,
+            '開始': self.show_welcome_message,
+            'start': self.show_welcome_message,
+            '歡迎': self.show_welcome_message,
+            '你好': self.show_welcome_message,
+            'hi': self.show_welcome_message,
+            'hello': self.show_welcome_message,
+            '記錄': self.show_recent_expenses,
+            '最近': self.show_recent_expenses,
+            'list': self.show_recent_expenses,
+            '報告': self.show_all_time_stats,
+            'stats': self.show_all_time_stats,
+            '月統計': self.show_monthly_summary,
+            '這個月': self.show_monthly_summary,
+            '當月': self.show_monthly_summary,
         }
     
-    def handle_message(self, user_id, message_text):
+    def handle_message(self, user_id, message_text, is_group=False):
         """處理用戶訊息"""
+        # 群組模式：只處理 @ai 開頭的訊息
+        if is_group and not message_text.strip().lower().startswith('@ai'):
+            return None  # 不回應，避免打斷群組對話
+        
         # 檢查是否為 @ai 指令
         if message_text.strip().lower().startswith('@ai'):
             # 解析訊息
@@ -59,17 +85,25 @@ class ExpenseBot:
             elif parser.is_valid_delete(parsed_data):
                 return self.delete_expense(user_id, parsed_data)
             
+            # 檢查是否為 @ai 內建指令（新增）
+            elif self.is_ai_help_command(message_text):
+                return self.handle_ai_help_command(user_id, message_text, is_group)
+            
             # 無效的 @ai 格式
             else:
-                return self.suggest_ai_format(message_text)
+                return self.suggest_ai_format(message_text, is_group)
         
-        # 檢查是否為其他指令
-        elif message_text.strip() in self.commands:
+        # 私聊模式：檢查是否為其他指令
+        elif not is_group and message_text.strip() in self.commands:
             return self.commands[message_text.strip()](user_id)
         
-        # 如果不是 @ai 開頭也不是指令，提示使用 @ai 格式
-        else:
+        # 私聊模式：提示使用 @ai 格式
+        elif not is_group:
             return self.suggest_ai_usage()
+        
+        # 群組模式的非 @ai 訊息不回應
+        else:
+            return None
     
     def add_expense(self, user_id, parsed_data):
         """新增支出記錄"""
@@ -95,9 +129,10 @@ class ExpenseBot:
             
             # 添加快速回覆選項
             quick_reply = QuickReply(items=[
-                QuickReplyButton(action=MessageAction(label="當前統計", text="當前統計")),
-                QuickReplyButton(action=MessageAction(label="查詢記錄", text="查詢")),
-                QuickReplyButton(action=MessageAction(label="本月", text="本月"))
+                QuickReplyButton(action=MessageAction(label="📊 當前統計", text="當前統計")),
+                QuickReplyButton(action=MessageAction(label="📋 查詢記錄", text="查詢")),
+                QuickReplyButton(action=MessageAction(label="📅 本月統計", text="本月")),
+                QuickReplyButton(action=MessageAction(label="⚙️ 更多功能", text="指令"))
             ])
             
             return TextSendMessage(text=response, quick_reply=quick_reply)
@@ -390,15 +425,18 @@ class ExpenseBot:
 • 支援直接刪除記錄，更方便管理"""
 
         quick_reply = QuickReply(items=[
-            QuickReplyButton(action=MessageAction(label="當前統計", text="當前統計")),
-            QuickReplyButton(action=MessageAction(label="查詢記錄", text="查詢")),
-            QuickReplyButton(action=MessageAction(label="記帳說明", text="記帳"))
+            QuickReplyButton(action=MessageAction(label="📊 當前統計", text="當前統計")),
+            QuickReplyButton(action=MessageAction(label="📋 查詢記錄", text="查詢")),
+            QuickReplyButton(action=MessageAction(label="📅 本月統計", text="本月")),
+            QuickReplyButton(action=MessageAction(label="⚙️ 更多功能", text="指令"))
         ])
 
         return TextSendMessage(text=help_text, quick_reply=quick_reply)
     
-    def suggest_ai_format(self, message_text):
+    def suggest_ai_format(self, message_text, is_group=False):
         """建議正確的 @ai 格式"""
+        context = "群組" if is_group else "私聊"
+        
         suggestion = f"""🤔 我發現您使用了 @ai 但格式不正確：
 "{message_text}"
 
@@ -413,9 +451,23 @@ class ExpenseBot:
 • @ai /del #23
 • @ai /del #156
 
+❓ 求助：@ai 指令
+• @ai ? - 快速幫助
+• @ai 指令 - 完整功能
+• @ai 歡迎 - 歡迎訊息
+
 請再試一次！"""
 
-        return TextSendMessage(text=suggestion)
+        if is_group:
+            suggestion += f"\n\n💡 **群組提醒**：只有 @ai 開頭的訊息我才會回應"
+
+        quick_reply = QuickReply(items=[
+            QuickReplyButton(action=MessageAction(label="📋 @ai 指令", text="@ai 指令")),
+            QuickReplyButton(action=MessageAction(label="❓ @ai ?", text="@ai ?")),
+            QuickReplyButton(action=MessageAction(label="💰 @ai 測試 10", text="@ai 測試 10"))
+        ])
+
+        return TextSendMessage(text=suggestion, quick_reply=quick_reply)
     
     def suggest_ai_usage(self):
         """建議使用 @ai 格式記帳"""
@@ -431,15 +483,23 @@ class ExpenseBot:
 🗑️ 刪除格式：@ai /del #編號
 • @ai /del #23
 
-📋 其他功能：
+📋 私聊專用指令：
 • "查詢" - 查看最近記錄
 • "當前統計" - 查看統計金額
-• "幫助" - 查看說明"""
+• "指令" - 查看完整功能列表
+• "?" - 快速幫助
+
+👥 群組使用：
+• 只會回應 @ai 開頭的訊息
+• 使用 @ai 指令 查看群組專用幫助
+
+💡 小提示：輸入「指令」可查看所有可用功能！"""
 
         quick_reply = QuickReply(items=[
-            QuickReplyButton(action=MessageAction(label="查詢記錄", text="查詢")),
-            QuickReplyButton(action=MessageAction(label="當前統計", text="當前統計")),
-            QuickReplyButton(action=MessageAction(label="幫助", text="幫助"))
+            QuickReplyButton(action=MessageAction(label="📋 指令列表", text="指令")),
+            QuickReplyButton(action=MessageAction(label="📊 查詢記錄", text="查詢")),
+            QuickReplyButton(action=MessageAction(label="📈 當前統計", text="當前統計")),
+            QuickReplyButton(action=MessageAction(label="❓ 幫助", text="幫助"))
         ])
 
         return TextSendMessage(text=suggestion, quick_reply=quick_reply)
@@ -584,9 +644,9 @@ class ExpenseBot:
                 
                 # 添加快速回覆選項
                 quick_reply = QuickReply(items=[
-                    QuickReplyButton(action=MessageAction(label="查詢記錄", text="查詢")),
-                    QuickReplyButton(action=MessageAction(label="當前統計", text="當前統計")),
-                    QuickReplyButton(action=MessageAction(label="本月", text="本月"))
+                    QuickReplyButton(action=MessageAction(label="📋 查詢記錄", text="查詢")),
+                    QuickReplyButton(action=MessageAction(label="📊 當前統計", text="當前統計")),
+                    QuickReplyButton(action=MessageAction(label="📅 本月統計", text="本月"))
                 ])
                 
                 return TextSendMessage(text=response, quick_reply=quick_reply)
@@ -596,6 +656,232 @@ class ExpenseBot:
         except Exception as e:
             logger.error(f"刪除記錄時發生錯誤: {e}")
             return TextSendMessage(text="❌ 刪除失敗，請稍後再試。")
+
+    def show_welcome_message(self, user_id):
+        """顯示歡迎訊息"""
+        welcome_text = """🎉 歡迎使用 LINE 記帳機器人！
+
+👋 我是你的專屬記帳助手，可以幫你：
+
+💰 **快速記帳**
+• 輸入：@ai 午餐 120
+• 馬上記錄支出
+
+📊 **智能統計**
+• 自動計算月度和總支出
+• 提供詳細統計報告
+
+🗑️ **便捷管理**
+• 支援刪除錯誤記錄
+• 個人資料完全隔離
+
+🚀 **立即開始**
+試試看輸入 @ai 測試 10 來體驗記帳功能！
+
+💡 不知道怎麼使用？輸入「指令」查看完整功能列表"""
+
+        quick_reply = QuickReply(items=[
+            QuickReplyButton(action=MessageAction(label="📋 指令列表", text="指令")),
+            QuickReplyButton(action=MessageAction(label="📝 記帳說明", text="記帳")),
+            QuickReplyButton(action=MessageAction(label="📊 當前統計", text="當前統計")),
+            QuickReplyButton(action=MessageAction(label="❓ 完整說明", text="幫助"))
+        ])
+
+        return TextSendMessage(text=welcome_text, quick_reply=quick_reply)
+    
+    def show_commands_menu(self, user_id):
+        """顯示指令選單"""
+        menu_text = """📋 指令選單
+
+🏠 **基本操作**
+• 輸入「開始」或「歡迎」- 顯示歡迎訊息
+• 輸入「指令」或「功能」- 顯示此選單
+• 輸入「幫助」或「?」- 完整使用說明
+
+💰 **記帳功能**
+• @ai 原因 金額 - 記錄支出
+• @ai /del #編號 - 刪除記錄
+• 輸入「記帳」- 記帳格式說明
+
+📊 **查詢統計**
+• 輸入「查詢」或「記錄」- 最近記錄
+• 輸入「本月」或「當月」- 本月統計
+• 輸入「當前統計」- 當前累積金額
+• 輸入「統計」或「報告」- 歷史統計
+• 輸入「總金額」- 月度統計
+
+🔄 **管理功能**
+• 輸入「重新統計」- 重置當前統計
+
+💡 **使用技巧**
+• 支援中英文指令
+• 不確定時隨時輸入「?」尋求幫助
+• 記帳必須以 @ai 開頭"""
+
+        quick_reply = QuickReply(items=[
+            QuickReplyButton(action=MessageAction(label="💰 @ai 測試 10", text="@ai 測試 10")),
+            QuickReplyButton(action=MessageAction(label="📊 查詢記錄", text="查詢")),
+            QuickReplyButton(action=MessageAction(label="📈 當前統計", text="當前統計")),
+            QuickReplyButton(action=MessageAction(label="❓ 完整說明", text="幫助"))
+        ])
+
+        return TextSendMessage(text=menu_text, quick_reply=quick_reply)
+
+    def is_ai_help_command(self, message_text):
+        """檢查是否為 @ai 內建幫助指令"""
+        content = message_text.strip()[3:].strip().lower()  # 移除 @ai 前綴
+        
+        help_keywords = [
+            'help', '幫助', '說明', '指令', '功能', '選單', 'menu',
+            '?', '？', 'start', '開始', '歡迎', 'hi', 'hello'
+        ]
+        
+        return content in help_keywords
+    
+    def handle_ai_help_command(self, user_id, message_text, is_group=False):
+        """處理 @ai 內建幫助指令"""
+        content = message_text.strip()[3:].strip().lower()  # 移除 @ai 前綴
+        
+        # 根據不同的幫助關鍵字返回不同內容
+        if content in ['help', '幫助', '說明', '?', '？']:
+            return self.show_ai_help(user_id, is_group)
+        elif content in ['指令', '功能', '選單', 'menu']:
+            return self.show_ai_commands(user_id, is_group)
+        elif content in ['start', '開始', '歡迎', 'hi', 'hello']:
+            return self.show_ai_welcome(user_id, is_group)
+        else:
+            return self.show_ai_help(user_id, is_group)
+    
+    def show_ai_welcome(self, user_id, is_group=False):
+        """顯示 @ai 歡迎訊息"""
+        context = "群組" if is_group else "私聊"
+        
+        welcome_text = f"""🎉 歡迎使用 LINE 記帳機器人！
+
+👋 我是你的專屬記帳助手，在{context}中為您服務
+
+💰 **快速記帳**
+@ai 午餐 120
+
+🗑️ **刪除記錄**
+@ai /del #記錄編號
+
+📊 **查看幫助**
+@ai 指令 - 查看完整功能
+@ai ? - 快速幫助
+
+✨ **立即體驗**
+試試看輸入：@ai 測試 10"""
+
+        if is_group:
+            welcome_text += f"\n\n💡 **群組提醒**\n• 只有 @ai 開頭的訊息我才會回應\n• 避免打斷群組正常對話"
+
+        quick_reply = QuickReply(items=[
+            QuickReplyButton(action=MessageAction(label="📋 @ai 指令", text="@ai 指令")),
+            QuickReplyButton(action=MessageAction(label="💰 @ai 測試 10", text="@ai 測試 10")),
+            QuickReplyButton(action=MessageAction(label="❓ @ai ?", text="@ai ?"))
+        ])
+
+        return TextSendMessage(text=welcome_text, quick_reply=quick_reply)
+    
+    def show_ai_commands(self, user_id, is_group=False):
+        """顯示 @ai 指令選單"""
+        context = "群組" if is_group else "私聊"
+        
+        commands_text = f"""📋 @ai 指令選單
+
+💰 **記帳功能**
+@ai 原因 金額 - 記錄支出
+• @ai 午餐 120
+• @ai 咖啡 50元
+• @ai 停車費 30
+
+🗑️ **刪除功能**
+@ai /del #編號 - 刪除記錄
+• @ai /del #23
+• @ai /del #156
+
+📊 **查詢統計** ({context}模式)"""
+
+        if is_group:
+            commands_text += """
+• 私聊我可使用：查詢、統計、本月等指令
+• 群組中只能使用 @ai 指令"""
+        else:
+            commands_text += """
+• 查詢 - 最近記錄
+• 統計 - 歷史統計
+• 本月 - 月度統計
+• 當前統計 - 當前累積"""
+
+        commands_text += f"""
+
+❓ **求助指令**
+@ai ? - 快速幫助
+@ai 幫助 - 詳細說明
+@ai 歡迎 - 歡迎訊息
+
+💡 **使用提醒**
+• 所有指令必須以 @ai 開頭
+• 支援中英文關鍵字"""
+
+        quick_reply = QuickReply(items=[
+            QuickReplyButton(action=MessageAction(label="💰 @ai 測試 10", text="@ai 測試 10")),
+            QuickReplyButton(action=MessageAction(label="❓ @ai ?", text="@ai ?")),
+            QuickReplyButton(action=MessageAction(label="🤖 @ai 歡迎", text="@ai 歡迎"))
+        ])
+
+        return TextSendMessage(text=commands_text, quick_reply=quick_reply)
+    
+    def show_ai_help(self, user_id, is_group=False):
+        """顯示 @ai 快速幫助"""
+        context = "群組" if is_group else "私聊"
+        
+        help_text = f"""❓ @ai 快速幫助
+
+🎯 **基本用法**
+@ai 原因 金額 → 記帳
+@ai /del #編號 → 刪除
+@ai 指令 → 完整功能
+
+📝 **記帳範例**
+@ai 午餐 120
+@ai 咖啡 50元
+@ai 停車費 30塊
+@ai 電影票 NT$280
+
+🗑️ **刪除範例**
+@ai /del #23
+@ai /del #156
+
+📊 **統計查詢** ({context}模式)"""
+
+        if is_group:
+            help_text += """
+群組中請私聊我使用：
+• 查詢 - 查看記錄
+• 統計 - 查看統計
+• 本月 - 月度統計"""
+        else:
+            help_text += """
+直接輸入指令：
+• 查詢 - 查看記錄
+• 統計 - 查看統計
+• 本月 - 月度統計"""
+
+        help_text += f"""
+
+💡 **重要提醒**
+• 只有 @ai 開頭才會被識別
+• 個人記錄完全隔離
+• 刪除後無法復原"""
+
+        quick_reply = QuickReply(items=[
+            QuickReplyButton(action=MessageAction(label="📋 @ai 指令", text="@ai 指令")),
+            QuickReplyButton(action=MessageAction(label="💰 @ai 測試 10", text="@ai 測試 10"))
+        ])
+
+        return TextSendMessage(text=help_text, quick_reply=quick_reply)
 
 # 初始化機器人
 bot = ExpenseBot()
@@ -625,11 +911,18 @@ def handle_message(event):
     user_id = event.source.user_id
     message_text = event.message.text
     
-    logger.info(f"收到用戶 {user_id} 的訊息: {message_text}")
+    # 檢測是否在群組中
+    is_group = hasattr(event.source, 'type') and event.source.type in ['group', 'room']
+    
+    logger.info(f"收到用戶 {user_id} 的訊息: {message_text} ({'群組' if is_group else '私聊'})")
     
     try:
-        # 使用機器人處理訊息
-        reply_message = bot.handle_message(user_id, message_text)
+        # 使用機器人處理訊息，傳入群組資訊
+        reply_message = bot.handle_message(user_id, message_text, is_group)
+        
+        # 如果沒有回應（群組中的非 @ai 訊息），直接返回
+        if reply_message is None:
+            return
         
         # 回覆訊息 - 加入更好的錯誤處理
         try:
