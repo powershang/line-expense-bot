@@ -790,89 +790,245 @@ def admin_dashboard():
         return f"錯誤: {str(e)}"
 
 @app.route("/admin/user/<user_id>")
-def admin_user_details(user_id):
+def admin_user_detail(user_id):
     """查看特定用戶的詳細記錄"""
     try:
         # 獲取用戶資料
         user_profile = get_user_profile(user_id)
-        display_name = user_profile['display_name']
-        picture_url = user_profile['picture_url']
         
-        expenses = db.get_user_expenses(user_id, limit=50)
+        conn = db.get_connection()
+        cursor = conn.cursor()
         
-        # 建立頭像顯示
-        avatar_img = f'<img src="{picture_url}" style="width: 50px; height: 50px; border-radius: 50%; margin-right: 15px;" alt="頭像">' if picture_url else '👤'
+        if db.use_postgresql:
+            cursor.execute('''
+                SELECT id, amount, location, description, category, timestamp
+                FROM expenses
+                WHERE user_id = %s
+                ORDER BY timestamp DESC
+            ''', (user_id,))
+        else:
+            cursor.execute('''
+                SELECT id, amount, location, description, category, timestamp
+                FROM expenses
+                WHERE user_id = ?
+                ORDER BY timestamp DESC
+            ''', (user_id,))
+        
+        expenses = cursor.fetchall()
+        conn.close()
+        
+        # 轉換 PostgreSQL 結果
+        if db.use_postgresql:
+            expenses = [tuple(expense.values()) for expense in expenses]
+        
+        # 計算統計
+        total = sum(expense[1] for expense in expenses)
         
         html = f"""
         <!DOCTYPE html>
         <html>
         <head>
-            <title>用戶記錄 - {display_name}</title>
+            <title>用戶詳情 - LINE 記帳機器人</title>
             <meta charset="UTF-8">
             <style>
                 body {{ font-family: Arial, sans-serif; margin: 20px; }}
-                table {{ border-collapse: collapse; width: 100%; }}
+                table {{ border-collapse: collapse; width: 100%; margin-top: 20px; }}
                 th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
                 th {{ background-color: #f2f2f2; }}
-                .header {{ background-color: #2196F3; color: white; padding: 20px; text-align: center; }}
+                .header {{ background-color: #FF9800; color: white; padding: 20px; text-align: center; }}
+                .user-info {{ background-color: #e3f2fd; padding: 20px; margin: 20px 0; border-radius: 5px; }}
+                .user-avatar {{ width: 60px; height: 60px; border-radius: 50%; margin-right: 15px; vertical-align: middle; }}
                 .back {{ margin: 20px 0; }}
-                .user-header {{ display: flex; align-items: center; justify-content: center; margin: 20px 0; }}
-                .user-details {{ background-color: #f9f9f9; padding: 15px; margin: 20px 0; border-radius: 8px; }}
+                .stats {{ background-color: #f9f9f9; padding: 15px; margin: 20px 0; }}
+                .delete-btn {{ background-color: #f44336; color: white; padding: 4px 8px; border: none; border-radius: 3px; cursor: pointer; font-size: 11px; }}
+                .delete-btn:hover {{ background-color: #da190b; }}
+                .batch-actions {{ margin: 20px 0; padding: 15px; background-color: #fff3e0; border-radius: 5px; border-left: 4px solid #FF9800; }}
+                .select-all {{ margin-right: 10px; }}
+                .batch-delete-btn {{ background-color: #f44336; color: white; padding: 8px 16px; border: none; border-radius: 5px; cursor: pointer; }}
+                .batch-delete-btn:hover {{ background-color: #da190b; }}
+                .clear-all-btn {{ background-color: #ff5722; color: white; padding: 8px 16px; border: none; border-radius: 5px; cursor: pointer; margin-left: 10px; }}
+                .clear-all-btn:hover {{ background-color: #d84315; }}
             </style>
+            <script>
+                function deleteRecord(id, description) {{
+                    if (confirm('確定要刪除記錄 #' + id + ' "' + description + '" 嗎？\\n此操作無法撤銷！')) {{
+                        fetch('/admin/delete/' + id, {{
+                            method: 'POST',
+                            headers: {{
+                                'Content-Type': 'application/json'
+                            }}
+                        }})
+                        .then(response => response.json())
+                        .then(data => {{
+                            if (data.success) {{
+                                alert('刪除成功！');
+                                location.reload();
+                            }} else {{
+                                alert('刪除失敗：' + data.error);
+                            }}
+                        }})
+                        .catch(error => {{
+                            alert('刪除失敗：' + error);
+                        }});
+                    }}
+                }}
+                
+                function toggleSelectAll() {{
+                    const selectAll = document.getElementById('selectAll');
+                    const checkboxes = document.querySelectorAll('input[name="selected_ids"]');
+                    checkboxes.forEach(cb => cb.checked = selectAll.checked);
+                    updateBatchDeleteButton();
+                }}
+                
+                function updateBatchDeleteButton() {{
+                    const selected = document.querySelectorAll('input[name="selected_ids"]:checked');
+                    const batchBtn = document.getElementById('batchDeleteBtn');
+                    batchBtn.disabled = selected.length === 0;
+                    batchBtn.textContent = `刪除選中的 ${{selected.length}} 筆記錄`;
+                }}
+                
+                function batchDelete() {{
+                    const selected = document.querySelectorAll('input[name="selected_ids"]:checked');
+                    const ids = Array.from(selected).map(cb => cb.value);
+                    
+                    if (ids.length === 0) {{
+                        alert('請選擇要刪除的記錄');
+                        return;
+                    }}
+                    
+                    if (confirm(`確定要刪除選中的 ${{ids.length}} 筆記錄嗎？\\n此操作無法撤銷！`)) {{
+                        fetch('/admin/batch-delete', {{
+                            method: 'POST',
+                            headers: {{
+                                'Content-Type': 'application/json'
+                            }},
+                            body: JSON.stringify({{ids: ids}})
+                        }})
+                        .then(response => response.json())
+                        .then(data => {{
+                            if (data.success) {{
+                                alert(`成功刪除 ${{data.deleted_count}} 筆記錄！`);
+                                location.reload();
+                            }} else {{
+                                alert('批量刪除失敗：' + data.error);
+                            }}
+                        }})
+                        .catch(error => {{
+                            alert('批量刪除失敗：' + error);
+                        }});
+                    }}
+                }}
+                
+                function clearAllUserRecords() {{
+                    const userId = '{user_id}';
+                    const userName = '{user_profile.get("displayName", "用戶")}';
+                    
+                    if (confirm(`⚠️ 危險操作 ⚠️\\n\\n確定要刪除用戶 "${{userName}}" 的所有記錄嗎？\\n\\n這將刪除該用戶的所有 {len(expenses)} 筆記錄！\\n此操作無法撤銷！\\n\\n請再次確認！`)) {{
+                        if (confirm(`最後確認：真的要刪除用戶 "${{userName}}" 的所有記錄嗎？`)) {{
+                            fetch('/admin/clear-user/' + userId, {{
+                                method: 'POST',
+                                headers: {{
+                                    'Content-Type': 'application/json'
+                                }}
+                            }})
+                            .then(response => response.json())
+                            .then(data => {{
+                                if (data.success) {{
+                                    alert(`成功刪除 ${{data.deleted_count}} 筆記錄！`);
+                                    location.reload();
+                                }} else {{
+                                    alert('刪除失敗：' + data.error);
+                                }}
+                            }})
+                            .catch(error => {{
+                                alert('刪除失敗：' + error);
+                            }});
+                        }}
+                    }}
+                }}
+            </script>
         </head>
         <body>
             <div class="header">
-                <h1>👤 用戶記錄詳細</h1>
-            </div>
-            
-            <div class="user-details">
-                <div class="user-header">
-                    {avatar_img}
-                    <div>
-                        <h2>{display_name}</h2>
-                        <p style="color: #666; margin: 5px 0;">用戶ID: {user_id}</p>
-                    </div>
-                </div>
+                <h1>👤 用戶詳情管理</h1>
+                <p>查看和管理用戶記錄</p>
             </div>
             
             <div class="back">
                 <a href="/admin">← 返回管理首頁</a>
             </div>
             
-            <h2>📋 最近 50 筆記錄</h2>
+            <div class="user-info">
+                <h2>👤 用戶資訊</h2>
+        """
+        
+        if user_profile.get('pictureUrl'):
+            html += f'<img src="{user_profile["pictureUrl"]}" alt="頭像" class="user-avatar">'
+        
+        html += f"""
+                <strong>姓名:</strong> {user_profile.get('displayName', '未知')} <br>
+                <strong>用戶ID:</strong> {user_id} <br>
+                <strong>狀態:</strong> {user_profile.get('statusMessage', '無狀態訊息')} <br>
+            </div>
+        """
+        
+        if expenses:
+            html += f"""
+            <div class="batch-actions">
+                <h3>🔧 批量操作</h3>
+                <label class="select-all">
+                    <input type="checkbox" id="selectAll" onchange="toggleSelectAll()"> 全選
+                </label>
+                <button id="batchDeleteBtn" class="batch-delete-btn" onclick="batchDelete()" disabled>
+                    刪除選中的 0 筆記錄
+                </button>
+                <button class="clear-all-btn" onclick="clearAllUserRecords()">
+                    🗑️ 清空該用戶所有記錄
+                </button>
+            </div>
+            
             <table>
                 <tr>
-                    <th>記錄ID</th>
+                    <th>選擇</th>
+                    <th>ID</th>
                     <th>金額</th>
                     <th>地點</th>
                     <th>描述</th>
                     <th>分類</th>
                     <th>時間</th>
+                    <th>操作</th>
                 </tr>
-        """
-        
-        total = 0
-        for expense in expenses:
-            expense_id, amount, location, description, category, timestamp = expense
-            total += amount
-            html += f"""
+            """
+            
+            for expense in expenses:
+                expense_id, amount, location, description, category, timestamp = expense
+                html += f"""
                 <tr>
+                    <td><input type="checkbox" name="selected_ids" value="{expense_id}" onchange="updateBatchDeleteButton()"></td>
                     <td>#{expense_id}</td>
                     <td>${amount:.0f}</td>
                     <td>{location or '-'}</td>
                     <td>{description}</td>
                     <td>{category or '-'}</td>
                     <td>{timestamp}</td>
+                    <td>
+                        <button class="delete-btn" onclick="deleteRecord({expense_id}, '{description}')">
+                            🗑️ 刪除
+                        </button>
+                    </td>
                 </tr>
-            """
+                """
+            
+            html += "</table>"
+        else:
+            html += "<p>該用戶暫無記錄</p>"
         
         html += f"""
-            </table>
-            
-            <div style="margin-top: 20px; background-color: #f9f9f9; padding: 15px;">
-                <h3>📊 統計摘要 - {display_name}</h3>
-                <p>顯示記錄數: {len(expenses)}</p>
-                <p>顯示總金額: ${total:.0f}</p>
+            <div class="stats">
+                <h3>📊 統計摘要</h3>
+                <p>記錄數量: {len(expenses)}</p>
+                <p>總支出: ${total:.0f}</p>
+                <p>平均支出: ${total/len(expenses):.0f if expenses else 0}</p>
             </div>
         </body>
         </html>
@@ -925,20 +1081,108 @@ def admin_all_expenses():
                 th {{ background-color: #f2f2f2; }}
                 .header {{ background-color: #FF9800; color: white; padding: 20px; text-align: center; }}
                 .back {{ margin: 20px 0; }}
+                .delete-btn {{ background-color: #f44336; color: white; padding: 4px 8px; border: none; border-radius: 3px; cursor: pointer; font-size: 11px; }}
+                .delete-btn:hover {{ background-color: #da190b; }}
+                .batch-actions {{ margin: 20px 0; padding: 15px; background-color: #f9f9f9; border-radius: 5px; }}
+                .select-all {{ margin-right: 10px; }}
+                .batch-delete-btn {{ background-color: #f44336; color: white; padding: 8px 16px; border: none; border-radius: 5px; cursor: pointer; }}
+                .batch-delete-btn:hover {{ background-color: #da190b; }}
+                .stats {{ background-color: #e3f2fd; padding: 15px; margin: 20px 0; border-radius: 5px; }}
             </style>
+            <script>
+                function deleteRecord(id, description) {{
+                    if (confirm('確定要刪除記錄 #' + id + ' "' + description + '" 嗎？\\n此操作無法撤銷！')) {{
+                        fetch('/admin/delete/' + id, {{
+                            method: 'POST',
+                            headers: {{
+                                'Content-Type': 'application/json'
+                            }}
+                        }})
+                        .then(response => response.json())
+                        .then(data => {{
+                            if (data.success) {{
+                                alert('刪除成功！');
+                                location.reload();
+                            }} else {{
+                                alert('刪除失敗：' + data.error);
+                            }}
+                        }})
+                        .catch(error => {{
+                            alert('刪除失敗：' + error);
+                        }});
+                    }}
+                }}
+                
+                function toggleSelectAll() {{
+                    const selectAll = document.getElementById('selectAll');
+                    const checkboxes = document.querySelectorAll('input[name="selected_ids"]');
+                    checkboxes.forEach(cb => cb.checked = selectAll.checked);
+                    updateBatchDeleteButton();
+                }}
+                
+                function updateBatchDeleteButton() {{
+                    const selected = document.querySelectorAll('input[name="selected_ids"]:checked');
+                    const batchBtn = document.getElementById('batchDeleteBtn');
+                    batchBtn.disabled = selected.length === 0;
+                    batchBtn.textContent = `刪除選中的 ${{selected.length}} 筆記錄`;
+                }}
+                
+                function batchDelete() {{
+                    const selected = document.querySelectorAll('input[name="selected_ids"]:checked');
+                    const ids = Array.from(selected).map(cb => cb.value);
+                    
+                    if (ids.length === 0) {{
+                        alert('請選擇要刪除的記錄');
+                        return;
+                    }}
+                    
+                    if (confirm(`確定要刪除選中的 ${{ids.length}} 筆記錄嗎？\\n此操作無法撤銷！`)) {{
+                        fetch('/admin/batch-delete', {{
+                            method: 'POST',
+                            headers: {{
+                                'Content-Type': 'application/json'
+                            }},
+                            body: JSON.stringify({{ids: ids}})
+                        }})
+                        .then(response => response.json())
+                        .then(data => {{
+                            if (data.success) {{
+                                alert(`成功刪除 ${{data.deleted_count}} 筆記錄！`);
+                                location.reload();
+                            }} else {{
+                                alert('批量刪除失敗：' + data.error);
+                            }}
+                        }})
+                        .catch(error => {{
+                            alert('批量刪除失敗：' + error);
+                        }});
+                    }}
+                }}
+            </script>
         </head>
         <body>
             <div class="header">
-                <h1>📋 所有記錄</h1>
-                <p>最近 100 筆記錄</p>
+                <h1>📋 所有記錄管理</h1>
+                <p>最近 100 筆記錄 (可刪除)</p>
             </div>
             
             <div class="back">
                 <a href="/admin">← 返回管理首頁</a>
             </div>
             
+            <div class="batch-actions">
+                <h3>🔧 批量操作</h3>
+                <label class="select-all">
+                    <input type="checkbox" id="selectAll" onchange="toggleSelectAll()"> 全選
+                </label>
+                <button id="batchDeleteBtn" class="batch-delete-btn" onclick="batchDelete()" disabled>
+                    刪除選中的 0 筆記錄
+                </button>
+            </div>
+            
             <table>
                 <tr>
+                    <th>選擇</th>
                     <th>ID</th>
                     <th>用戶ID</th>
                     <th>金額</th>
@@ -946,6 +1190,7 @@ def admin_all_expenses():
                     <th>描述</th>
                     <th>分類</th>
                     <th>時間</th>
+                    <th>操作</th>
                 </tr>
         """
         
@@ -955,6 +1200,7 @@ def admin_all_expenses():
             total += amount
             html += f"""
                 <tr>
+                    <td><input type="checkbox" name="selected_ids" value="{expense_id}" onchange="updateBatchDeleteButton()"></td>
                     <td>#{expense_id}</td>
                     <td>{user_id[:15]}...</td>
                     <td>${amount:.0f}</td>
@@ -962,13 +1208,18 @@ def admin_all_expenses():
                     <td>{description}</td>
                     <td>{category or '-'}</td>
                     <td>{timestamp}</td>
+                    <td>
+                        <button class="delete-btn" onclick="deleteRecord({expense_id}, '{description}')">
+                            🗑️ 刪除
+                        </button>
+                    </td>
                 </tr>
             """
         
         html += f"""
             </table>
             
-            <div style="margin-top: 20px; background-color: #f9f9f9; padding: 15px;">
+            <div class="stats">
                 <h3>📊 統計摘要</h3>
                 <p>顯示記錄數: {len(expenses)}</p>
                 <p>顯示總金額: ${total:.0f}</p>
@@ -981,6 +1232,113 @@ def admin_all_expenses():
         
     except Exception as e:
         return f"錯誤: {str(e)}"
+
+@app.route("/admin/delete/<int:expense_id>", methods=['POST'])
+def admin_delete_expense(expense_id):
+    """刪除單筆記錄"""
+    try:
+        # 先獲取記錄詳情用於記錄
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        if db.use_postgresql:
+            cursor.execute('SELECT user_id, amount, description FROM expenses WHERE id = %s', (expense_id,))
+        else:
+            cursor.execute('SELECT user_id, amount, description FROM expenses WHERE id = ?', (expense_id,))
+        
+        record = cursor.fetchone()
+        if not record:
+            conn.close()
+            return {"success": False, "error": "記錄不存在"}
+        
+        # 執行刪除
+        if db.use_postgresql:
+            cursor.execute('DELETE FROM expenses WHERE id = %s', (expense_id,))
+        else:
+            cursor.execute('DELETE FROM expenses WHERE id = ?', (expense_id,))
+        
+        deleted_count = cursor.rowcount
+        conn.commit()
+        conn.close()
+        
+        if deleted_count > 0:
+            logger.info(f"管理員刪除記錄: ID={expense_id}, 用戶={record[0] if db.use_postgresql else record[0]}")
+            return {"success": True, "message": "刪除成功"}
+        else:
+            return {"success": False, "error": "記錄不存在或已被刪除"}
+            
+    except Exception as e:
+        logger.error(f"刪除記錄失敗: {e}")
+        return {"success": False, "error": str(e)}
+
+@app.route("/admin/batch-delete", methods=['POST'])
+def admin_batch_delete():
+    """批量刪除記錄"""
+    try:
+        data = request.get_json()
+        ids = data.get('ids', [])
+        
+        if not ids:
+            return {"success": False, "error": "沒有選擇要刪除的記錄"}
+        
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        # 構建批量刪除 SQL
+        if db.use_postgresql:
+            placeholders = ','.join(['%s'] * len(ids))
+            cursor.execute(f'DELETE FROM expenses WHERE id IN ({placeholders})', ids)
+        else:
+            placeholders = ','.join(['?'] * len(ids))
+            cursor.execute(f'DELETE FROM expenses WHERE id IN ({placeholders})', ids)
+        
+        deleted_count = cursor.rowcount
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"管理員批量刪除: {deleted_count} 筆記錄, IDs={ids}")
+        return {"success": True, "deleted_count": deleted_count, "message": f"成功刪除 {deleted_count} 筆記錄"}
+        
+    except Exception as e:
+        logger.error(f"批量刪除失敗: {e}")
+        return {"success": False, "error": str(e)}
+
+@app.route("/admin/clear-user/<user_id>", methods=['POST'])
+def admin_clear_user_records(user_id):
+    """清空特定用戶的所有記錄"""
+    try:
+        # 先檢查用戶是否存在記錄
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        if db.use_postgresql:
+            cursor.execute('SELECT COUNT(*) FROM expenses WHERE user_id = %s', (user_id,))
+        else:
+            cursor.execute('SELECT COUNT(*) FROM expenses WHERE user_id = ?', (user_id,))
+        
+        count_result = cursor.fetchone()
+        record_count = count_result[0] if isinstance(count_result, (list, tuple)) else count_result['count']
+        
+        if record_count == 0:
+            conn.close()
+            return {"success": False, "error": "該用戶沒有記錄可刪除"}
+        
+        # 執行刪除
+        if db.use_postgresql:
+            cursor.execute('DELETE FROM expenses WHERE user_id = %s', (user_id,))
+        else:
+            cursor.execute('DELETE FROM expenses WHERE user_id = ?', (user_id,))
+        
+        deleted_count = cursor.rowcount
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"管理員清空用戶記錄: 用戶={user_id}, 刪除數量={deleted_count}")
+        return {"success": True, "deleted_count": deleted_count, "message": f"成功清空用戶所有記錄"}
+        
+    except Exception as e:
+        logger.error(f"清空用戶記錄失敗: {e}")
+        return {"success": False, "error": str(e)}
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=PORT, debug=True) 
