@@ -8,6 +8,7 @@ from linebot.models import (
 )
 from datetime import datetime
 import logging
+import re
 
 from config import LINE_CHANNEL_ACCESS_TOKEN, LINE_CHANNEL_SECRET, PORT, DATABASE_URL
 from database import ExpenseDatabase
@@ -85,13 +86,21 @@ class ExpenseBot:
             elif parser.is_valid_delete(parsed_data):
                 return self.delete_expense(user_id, parsed_data)
             
-            # 檢查是否為 @ai 內建指令（新增）
+            # 檢查是否為 @ai 查詢指令（新增）
+            elif self.is_ai_query_command(message_text):
+                return self.handle_ai_query_command(user_id, message_text, is_group)
+            
+            # 檢查是否為 @ai 內建指令
             elif self.is_ai_help_command(message_text):
                 return self.handle_ai_help_command(user_id, message_text, is_group)
             
             # 無效的 @ai 格式
             else:
                 return self.suggest_ai_format(message_text, is_group)
+        
+        # 私聊模式：檢查是否為數字查詢指令
+        elif not is_group and self.is_number_query_command(message_text):
+            return self.handle_number_query_command(user_id, message_text)
         
         # 私聊模式：檢查是否為其他指令
         elif not is_group and message_text.strip() in self.commands:
@@ -483,8 +492,12 @@ class ExpenseBot:
 🗑️ 刪除格式：@ai /del #編號
 • @ai /del #23
 
+📊 查詢格式：@ai 查詢 [數字]
+• @ai 查詢 - 顯示 5 筆
+• @ai 查詢 10 - 顯示 10 筆
+
 📋 私聊專用指令：
-• "查詢" - 查看最近記錄
+• "查詢" / "查詢10" / "查詢20" - 查看記錄
 • "當前統計" - 查看統計金額
 • "指令" - 查看完整功能列表
 • "?" - 快速幫助
@@ -497,7 +510,7 @@ class ExpenseBot:
 
         quick_reply = QuickReply(items=[
             QuickReplyButton(action=MessageAction(label="📋 指令列表", text="指令")),
-            QuickReplyButton(action=MessageAction(label="📊 查詢記錄", text="查詢")),
+            QuickReplyButton(action=MessageAction(label="📊 查詢10", text="查詢10")),
             QuickReplyButton(action=MessageAction(label="📈 當前統計", text="當前統計")),
             QuickReplyButton(action=MessageAction(label="❓ 幫助", text="幫助"))
         ])
@@ -801,18 +814,24 @@ class ExpenseBot:
 • @ai /del #23
 • @ai /del #156
 
-📊 **查詢統計** ({context}模式)"""
+📊 **查詢記錄**
+@ai 查詢 [數字] - 查看最近記錄
+• @ai 查詢 - 顯示 5 筆 (預設)
+• @ai 查詢 10 - 顯示 10 筆
+• @ai 查詢 20 - 顯示 20 筆
+
+📊 **統計功能** ({context}模式)"""
 
         if is_group:
             commands_text += """
-• 私聊我可使用：查詢、統計、本月等指令
+• 私聊我可使用：統計、本月、當前統計等指令
 • 群組中只能使用 @ai 指令"""
         else:
             commands_text += """
-• 查詢 - 最近記錄
 • 統計 - 歷史統計
 • 本月 - 月度統計
-• 當前統計 - 當前累積"""
+• 當前統計 - 當前累積
+• 或直接輸入：查詢10、查詢20"""
 
         commands_text += f"""
 
@@ -823,12 +842,12 @@ class ExpenseBot:
 
 💡 **使用提醒**
 • 所有指令必須以 @ai 開頭
-• 支援中英文關鍵字"""
+• 查詢數量限制：1-50 筆"""
 
         quick_reply = QuickReply(items=[
+            QuickReplyButton(action=MessageAction(label="📊 @ai 查詢 10", text="@ai 查詢 10")),
             QuickReplyButton(action=MessageAction(label="💰 @ai 測試 10", text="@ai 測試 10")),
-            QuickReplyButton(action=MessageAction(label="❓ @ai ?", text="@ai ?")),
-            QuickReplyButton(action=MessageAction(label="🤖 @ai 歡迎", text="@ai 歡迎"))
+            QuickReplyButton(action=MessageAction(label="❓ @ai ?", text="@ai ?"))
         ])
 
         return TextSendMessage(text=commands_text, quick_reply=quick_reply)
@@ -842,7 +861,7 @@ class ExpenseBot:
 🎯 **基本用法**
 @ai 原因 金額 → 記帳
 @ai /del #編號 → 刪除
-@ai 指令 → 完整功能
+@ai 查詢 [數字] → 查看記錄
 
 📝 **記帳範例**
 @ai 午餐 120
@@ -854,34 +873,192 @@ class ExpenseBot:
 @ai /del #23
 @ai /del #156
 
+📊 **查詢範例**
+@ai 查詢 - 顯示 5 筆
+@ai 查詢 10 - 顯示 10 筆
+@ai 查詢 20 - 顯示 20 筆
+
 📊 **統計查詢** ({context}模式)"""
 
         if is_group:
             help_text += """
 群組中請私聊我使用：
-• 查詢 - 查看記錄
 • 統計 - 查看統計
-• 本月 - 月度統計"""
+• 本月 - 月度統計
+• 當前統計 - 當前累積"""
         else:
             help_text += """
 直接輸入指令：
-• 查詢 - 查看記錄
 • 統計 - 查看統計
-• 本月 - 月度統計"""
+• 本月 - 月度統計
+• 查詢10、查詢20 - 指定筆數"""
 
         help_text += f"""
 
 💡 **重要提醒**
 • 只有 @ai 開頭才會被識別
-• 個人記錄完全隔離
-• 刪除後無法復原"""
+• 查詢數量限制：1-50 筆
+• 個人記錄完全隔離"""
 
         quick_reply = QuickReply(items=[
-            QuickReplyButton(action=MessageAction(label="📋 @ai 指令", text="@ai 指令")),
-            QuickReplyButton(action=MessageAction(label="💰 @ai 測試 10", text="@ai 測試 10"))
+            QuickReplyButton(action=MessageAction(label="📊 @ai 查詢 10", text="@ai 查詢 10")),
+            QuickReplyButton(action=MessageAction(label="📋 @ai 指令", text="@ai 指令"))
         ])
 
         return TextSendMessage(text=help_text, quick_reply=quick_reply)
+
+    def is_ai_query_command(self, message_text):
+        """檢查是否為 @ai 查詢指令"""
+        import re
+        content = message_text.strip()[3:].strip()  # 移除 @ai 前綴
+        
+        # 匹配 "查詢", "查詢 數字", "list", "list 數字" 等
+        query_patterns = [
+            r'^查詢\s*(\d+)?$',
+            r'^記錄\s*(\d+)?$', 
+            r'^最近\s*(\d+)?$',
+            r'^list\s*(\d+)?$'
+        ]
+        
+        for pattern in query_patterns:
+            if re.match(pattern, content, re.IGNORECASE):
+                return True
+        
+        return False
+    
+    def handle_ai_query_command(self, user_id, message_text, is_group=False):
+        """處理 @ai 查詢指令"""
+        import re
+        content = message_text.strip()[3:].strip()  # 移除 @ai 前綴
+        
+        # 提取數字
+        number_match = re.search(r'(\d+)', content)
+        limit = int(number_match.group(1)) if number_match else 5
+        
+        # 限制範圍
+        if limit > 50:
+            limit = 50
+            warning = f"\n⚠️ 最多只能查詢 50 筆，已調整為 50 筆"
+        elif limit < 1:
+            limit = 5
+            warning = f"\n⚠️ 數量不能小於 1，已調整為 5 筆"
+        else:
+            warning = ""
+        
+        return self.show_recent_expenses_with_limit(user_id, limit, is_group, warning)
+    
+    def is_number_query_command(self, message_text):
+        """檢查是否為數字查詢指令（私聊專用）"""
+        import re
+        
+        # 匹配 "查詢10", "記錄20", "最近15", "list30" 等
+        number_patterns = [
+            r'^查詢\d+$',
+            r'^記錄\d+$',
+            r'^最近\d+$',
+            r'^list\d+$'
+        ]
+        
+        for pattern in number_patterns:
+            if re.match(pattern, message_text.strip(), re.IGNORECASE):
+                return True
+        
+        return False
+    
+    def handle_number_query_command(self, user_id, message_text):
+        """處理數字查詢指令（私聊專用）"""
+        import re
+        
+        # 提取數字
+        number_match = re.search(r'(\d+)', message_text.strip())
+        limit = int(number_match.group(1)) if number_match else 5
+        
+        # 限制範圍
+        if limit > 50:
+            limit = 50
+            warning = f"\n⚠️ 最多只能查詢 50 筆，已調整為 50 筆"
+        elif limit < 1:
+            limit = 5
+            warning = f"\n⚠️ 數量不能小於 1，已調整為 5 筆"
+        else:
+            warning = ""
+        
+        return self.show_recent_expenses_with_limit(user_id, limit, False, warning)
+    
+    def show_recent_expenses_with_limit(self, user_id, limit=5, is_group=False, warning=""):
+        """顯示指定筆數的最近支出記錄"""
+        try:
+            expenses = db.get_user_expenses(user_id, limit=limit)
+            
+            if not expenses:
+                return TextSendMessage(text="📋 目前沒有支出記錄。")
+            
+            response = f"📋 最近 {len(expenses)} 筆支出記錄:\n\n"
+            total = 0
+            
+            for expense in expenses:
+                expense_id, amount, location, description, category, timestamp = expense
+                total += amount
+                
+                # 格式化時間 - 添加錯誤處理
+                try:
+                    if timestamp:
+                        # 處理不同的時間格式
+                        if isinstance(timestamp, str):
+                            # 移除 Z 並替換為 +00:00，或直接使用原格式
+                            if 'Z' in timestamp:
+                                timestamp_clean = timestamp.replace('Z', '+00:00')
+                            elif '+' in timestamp or 'T' in timestamp:
+                                timestamp_clean = timestamp
+                            else:
+                                # 如果是 YYYY-MM-DD HH:MM:SS 格式，直接解析
+                                timestamp_clean = timestamp
+                            
+                            dt = datetime.fromisoformat(timestamp_clean)
+                        else:
+                            # 如果是 datetime 對象
+                            dt = timestamp
+                        
+                        time_str = dt.strftime('%m/%d %H:%M')
+                    else:
+                        time_str = '時間未知'
+                except Exception as time_error:
+                    print(f"❌ 時間格式化錯誤: {time_error}, timestamp: {timestamp}, type: {type(timestamp)}")
+                    time_str = '時間格式錯誤'
+                
+                response += f"#{expense_id} - {time_str}\n"
+                response += f"📝 {description} - 💰 {amount:.0f} 元\n\n"
+            
+            response += f"總計: {total:.0f} 元"
+            
+            # 添加警告訊息
+            if warning:
+                response += warning
+            
+            # 根據模式提供不同的快速回覆
+            if is_group:
+                quick_reply = QuickReply(items=[
+                    QuickReplyButton(action=MessageAction(label="📊 @ai 查詢 10", text="@ai 查詢 10")),
+                    QuickReplyButton(action=MessageAction(label="📈 @ai 查詢 20", text="@ai 查詢 20")),
+                    QuickReplyButton(action=MessageAction(label="❓ @ai ?", text="@ai ?"))
+                ])
+            else:
+                quick_reply = QuickReply(items=[
+                    QuickReplyButton(action=MessageAction(label="📊 查詢10", text="查詢10")),
+                    QuickReplyButton(action=MessageAction(label="📈 查詢20", text="查詢20")),
+                    QuickReplyButton(action=MessageAction(label="📅 本月", text="本月")),
+                    QuickReplyButton(action=MessageAction(label="📊 當前統計", text="當前統計"))
+                ])
+            
+            return TextSendMessage(text=response, quick_reply=quick_reply)
+            
+        except Exception as e:
+            print(f"❌ 查詢支出記錄詳細錯誤: {type(e).__name__}: {str(e)}")
+            print(f"❌ 錯誤完整信息: {repr(e)}")
+            import traceback
+            traceback.print_exc()
+            logger.error(f"查詢支出記錄時發生錯誤: {e}")
+            return TextSendMessage(text="❌ 查詢失敗，請稍後再試。")
 
 # 初始化機器人
 bot = ExpenseBot()
